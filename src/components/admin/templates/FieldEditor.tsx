@@ -1,13 +1,18 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
-import { X, Plus, Trash2, Save, Loader2, Type, AlignLeft, Table } from 'lucide-react'
+import { X, Plus, Trash2, Save, Loader2, Type, AlignLeft, Table, CheckCircle2, AlertCircle } from 'lucide-react'
 import { Portal } from '../../ui/Portal'
 import type { EditableFieldDef } from '../../../types'
+
+interface SaveResult {
+  success: boolean
+  error?: string
+}
 
 interface FieldEditorProps {
   slideImageUrl: string
   slideLabel: string
   initialFields: EditableFieldDef[]
-  onSave: (fields: EditableFieldDef[]) => Promise<void>
+  onSave: (fields: EditableFieldDef[]) => Promise<SaveResult>
   onClose: () => void
 }
 
@@ -48,6 +53,7 @@ export function FieldEditor({
   const [drawStart, setDrawStart] = useState<{ x: number; y: number } | null>(null)
   const [drawCurrent, setDrawCurrent] = useState<{ x: number; y: number } | null>(null)
   const [saving, setSaving] = useState(false)
+  const [saveStatus, setSaveStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
   const canvasRef = useRef<HTMLDivElement>(null)
 
   const selectedField = fields.find((f) => f.id === selectedFieldId) ?? null
@@ -126,9 +132,15 @@ export function FieldEditor({
 
   async function handleSave() {
     setSaving(true)
-    await onSave(fields)
+    setSaveStatus(null)
+    const result = await onSave(fields)
     setSaving(false)
-    onClose()
+    if (result.success) {
+      setSaveStatus({ type: 'success', message: `${fields.length} field${fields.length !== 1 ? 's' : ''} saved successfully` })
+      setTimeout(() => onClose(), 800)
+    } else {
+      setSaveStatus({ type: 'error', message: result.error || 'Failed to save fields' })
+    }
   }
 
   // Keyboard shortcuts
@@ -318,22 +330,41 @@ export function FieldEditor({
           </div>
 
           {/* Footer */}
-          <div className="flex items-center justify-end gap-3 border-t border-gray-100 px-6 py-4">
-            <button
-              onClick={onClose}
-              className="rounded-lg px-4 py-2.5 text-sm font-heading font-medium text-hoxton-slate hover:bg-hoxton-light hover:text-hoxton-deep"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={handleSave}
-              disabled={saving}
-              className="inline-flex items-center gap-2 rounded-lg bg-hoxton-turquoise px-4 py-2.5 text-sm font-heading font-semibold text-white transition-colors hover:bg-hoxton-turquoise/90 disabled:opacity-50"
-            >
-              {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-              <Save className="h-4 w-4" />
-              Save Fields
-            </button>
+          <div className="flex items-center justify-between border-t border-gray-100 px-6 py-4">
+            {saveStatus ? (
+              <div className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-heading font-medium ${
+                saveStatus.type === 'success'
+                  ? 'bg-emerald-50 text-emerald-700'
+                  : 'bg-red-50 text-red-700'
+              }`}>
+                {saveStatus.type === 'success' ? (
+                  <CheckCircle2 className="h-4 w-4" />
+                ) : (
+                  <AlertCircle className="h-4 w-4" />
+                )}
+                {saveStatus.message}
+              </div>
+            ) : (
+              <div />
+            )}
+            <div className="flex items-center gap-3">
+              <button
+                onClick={onClose}
+                disabled={saving}
+                className="rounded-lg px-4 py-2.5 text-sm font-heading font-medium text-hoxton-slate hover:bg-hoxton-light hover:text-hoxton-deep disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSave}
+                disabled={saving}
+                className="inline-flex items-center gap-2 rounded-lg bg-hoxton-turquoise px-4 py-2.5 text-sm font-heading font-semibold text-white transition-colors hover:bg-hoxton-turquoise/90 disabled:opacity-50"
+              >
+                {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+                <Save className="h-4 w-4" />
+                Save Fields
+              </button>
+            </div>
           </div>
         </div>
       </div>

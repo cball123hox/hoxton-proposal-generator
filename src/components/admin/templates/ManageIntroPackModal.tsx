@@ -241,26 +241,69 @@ export function ManageIntroPackModal({ region, userId, onClose, onRefresh }: Man
     await onRefresh()
   }
 
-  async function handleSaveFields(slideItem: SlideItem, fields: EditableFieldDef[]) {
-    setSlides((prev) =>
-      prev.map((s) =>
-        s.slideNumber === slideItem.slideNumber ? { ...s, editableFields: fields } : s
-      )
-    )
+  async function handleSaveFields(slideItem: SlideItem, fields: EditableFieldDef[]): Promise<{ success: boolean; error?: string }> {
+    try {
+      let dbId = slideItem.dbId
 
-    if (slideItem.dbId) {
-      await supabase
-        .from('intro_slides')
-        .update({
-          editable_fields: fields as unknown as Record<string, unknown>[],
-          slide_type: fields.length > 0 ? 'editable' : 'static',
-        })
-        .eq('id', slideItem.dbId)
+      // Create DB record if it doesn't exist yet
+      if (!dbId) {
+        if (!introPack) {
+          return { success: false, error: 'No intro pack found for this region' }
+        }
+
+        const { data, error: insertErr } = await supabase
+          .from('intro_slides')
+          .insert({
+            intro_pack_id: introPack.id,
+            slide_number: slideItem.slideNumber,
+            title: `Slide ${slideItem.slideNumber}`,
+            slide_type: fields.length > 0 ? 'editable' : 'static',
+            image_path: slideItem.imagePath,
+            editable_fields: fields as unknown as Record<string, unknown>[],
+          })
+          .select('id')
+          .single()
+
+        if (insertErr || !data) {
+          console.error('Failed to create slide record:', insertErr)
+          return { success: false, error: insertErr?.message || 'Failed to create slide record' }
+        }
+
+        dbId = data.id
+      } else {
+        // Update existing record
+        const { error: updateErr } = await supabase
+          .from('intro_slides')
+          .update({
+            editable_fields: fields as unknown as Record<string, unknown>[],
+            slide_type: fields.length > 0 ? 'editable' : 'static',
+          })
+          .eq('id', dbId)
+
+        if (updateErr) {
+          console.error('Failed to update slide fields:', updateErr)
+          return { success: false, error: updateErr.message }
+        }
+      }
+
+      // Update local state with fields and dbId
+      setSlides((prev) =>
+        prev.map((s) =>
+          s.slideNumber === slideItem.slideNumber
+            ? { ...s, editableFields: fields, dbId }
+            : s
+        )
+      )
 
       await logAudit('editable_fields_updated', 'intro_pack', region.id, {
         slide_number: slideItem.slideNumber,
         field_count: fields.length,
       }, userId)
+
+      return { success: true }
+    } catch (err) {
+      console.error('Unexpected error saving fields:', err)
+      return { success: false, error: 'An unexpected error occurred' }
     }
   }
 
