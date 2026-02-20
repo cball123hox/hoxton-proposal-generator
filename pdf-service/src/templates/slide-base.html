@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=1280">
+  <title>Hoxton Proposal — {{clientName}}</title>
+  <style>
+    @font-face {
+      font-family: 'FT Calhern';
+      src: url('/fonts/FTCalhern-Medium.woff2') format('woff2');
+      font-weight: 500;
+      font-style: normal;
+    }
+    @font-face {
+      font-family: 'FT Calhern';
+      src: url('/fonts/FTCalhern-Semibold.woff2') format('woff2');
+      font-weight: 600;
+      font-style: normal;
+    }
+    @font-face {
+      font-family: 'FT Calhern';
+      src: url('/fonts/FTCalhern-Bold.woff2') format('woff2');
+      font-weight: 700;
+      font-style: normal;
+    }
+    @font-face {
+      font-family: 'Sentient';
+      src: url('/fonts/Sentient-Regular.woff2') format('woff2');
+      font-weight: 400;
+      font-style: normal;
+    }
+    @font-face {
+      font-family: 'Sentient';
+      src: url('/fonts/Sentient-Medium.woff2') format('woff2');
+      font-weight: 500;
+      font-style: normal;
+    }
+
+    @page {
+      size: 1280px 720px;
+      margin: 0;
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    html, body {
+      width: 1280px;
+      font-family: 'Sentient', Georgia, serif;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+
+    .slide {
+      width: 1280px;
+      height: 720px;
+      position: relative;
+      overflow: hidden;
+      page-break-after: always;
+      page-break-inside: avoid;
+    }
+
+    .slide:last-child {
+      page-break-after: auto;
+    }
+
+    /* Full-bleed image slide */
+    .slide-image {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    /* Editable content slides */
+    .slide-content {
+      width: 100%;
+      height: 100%;
+      background: #033839;
+      color: #ffffff;
+      padding: 60px 80px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .slide-content h1 {
+      font-family: 'FT Calhern', 'Helvetica Neue', sans-serif;
+      font-weight: 600;
+      font-size: 36px;
+      color: #B8F4EF;
+      margin-bottom: 12px;
+    }
+
+    .slide-content h2 {
+      font-family: 'FT Calhern', 'Helvetica Neue', sans-serif;
+      font-weight: 600;
+      font-size: 24px;
+      color: #B8F4EF;
+      margin-bottom: 8px;
+      margin-top: 24px;
+    }
+
+    .slide-content p {
+      font-family: 'Sentient', Georgia, serif;
+      font-size: 18px;
+      line-height: 1.6;
+      color: #D7E5E3;
+    }
+
+    .slide-content .subtitle {
+      font-family: 'Sentient', Georgia, serif;
+      font-size: 16px;
+      color: #527C7E;
+      margin-bottom: 36px;
+    }
+
+    .slide-content .section-block {
+      margin-bottom: 20px;
+    }
+
+    .slide-content .divider {
+      width: 60px;
+      height: 3px;
+      background: #1AB0C4;
+      margin-bottom: 32px;
+    }
+
+    /* Fee table styles */
+    .fee-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 16px;
+    }
+
+    .fee-table th {
+      font-family: 'FT Calhern', 'Helvetica Neue', sans-serif;
+      font-weight: 600;
+      font-size: 14px;
+      text-align: left;
+      padding: 12px 16px;
+      color: #B8F4EF;
+      border-bottom: 1px solid #527C7E;
+    }
+
+    .fee-table td {
+      font-family: 'Sentient', Georgia, serif;
+      font-size: 15px;
+      padding: 10px 16px;
+      color: #D7E5E3;
+      border-bottom: 1px solid rgba(82, 124, 126, 0.3);
+    }
+
+    /* Logo watermark */
+    .slide-logo {
+      position: absolute;
+      bottom: 24px;
+      right: 40px;
+      opacity: 0.3;
+    }
+
+    .slide-logo img {
+      height: 28px;
+    }
+
+    /* Client name header bar */
+    .client-header {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 4px;
+      background: linear-gradient(90deg, #1AB0C4, #B8F4EF);
+    }
+  </style>
+</head>
+<body>
+{{slides}}
+</body>
+</html>

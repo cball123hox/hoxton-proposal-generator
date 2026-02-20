@@ -1,0 +1,116 @@
+@import "tailwindcss";
+
+/* ── Brand Colors ── */
+@theme {
+  --color-hoxton-deep: #033839;
+  --color-hoxton-grey: #D7E5E3;
+  --color-hoxton-mint: #B8F4EF;
+  --color-hoxton-slate: #527C7E;
+  --color-hoxton-turquoise: #1AB0C4;
+  --color-hoxton-light: #F0F7F6;
+
+  --font-heading: 'FT Calhern', sans-serif;
+  --font-body: 'Sentient', serif;
+}
+
+/* ── FT Calhern (Headings) ── */
+@font-face {
+  font-family: 'FT Calhern';
+  src: url('/fonts/FTCalhern-Book.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'FT Calhern';
+  src: url('/fonts/FTCalhern-BookItalic.woff2') format('woff2');
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'FT Calhern';
+  src: url('/fonts/FTCalhern-Medium.woff2') format('woff2');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'FT Calhern';
+  src: url('/fonts/FTCalhern-MediumItalic.woff2') format('woff2');
+  font-weight: 500;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'FT Calhern';
+  src: url('/fonts/FTCalhern-Semibold.woff2') format('woff2');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'FT Calhern';
+  src: url('/fonts/FTCalhern-SemiboldItalic.woff2') format('woff2');
+  font-weight: 600;
+  font-style: italic;
+  font-display: swap;
+}
+
+/* ── Sentient (Body) ── */
+@font-face {
+  font-family: 'Sentient';
+  src: url('/fonts/Sentient-Light.woff2') format('woff2');
+  font-weight: 300;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Sentient';
+  src: url('/fonts/Sentient-LightItalic.woff2') format('woff2');
+  font-weight: 300;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Sentient';
+  src: url('/fonts/Sentient-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Sentient';
+  src: url('/fonts/Sentient-Italic.woff2') format('woff2');
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Sentient';
+  src: url('/fonts/Sentient-Medium.woff2') format('woff2');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Sentient';
+  src: url('/fonts/Sentient-MediumItalic.woff2') format('woff2');
+  font-weight: 500;
+  font-style: italic;
+  font-display: swap;
+}
+
+/* ── Base Resets ── */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
