@@ -40,6 +40,8 @@ function generateId() {
   return `field-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
 }
 
+type InteractionMode = 'idle' | 'drawing' | 'moving' | 'resizing'
+
 export function FieldEditor({
   slideImageUrl,
   slideLabel,
@@ -47,18 +49,34 @@ export function FieldEditor({
   onSave,
   onClose,
 }: FieldEditorProps) {
-  const [fields, setFields] = useState<EditableFieldDef[]>(initialFields)
+  // Ensure initialFields is always a valid array (guard against unexpected formats from DB)
+  const safeInitialFields = Array.isArray(initialFields) ? initialFields : []
+
+  const [fields, setFields] = useState<EditableFieldDef[]>(safeInitialFields)
   const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null)
-  const [drawing, setDrawing] = useState(false)
-  const [drawStart, setDrawStart] = useState<{ x: number; y: number } | null>(null)
-  const [drawCurrent, setDrawCurrent] = useState<{ x: number; y: number } | null>(null)
   const [saving, setSaving] = useState(false)
   const [saveStatus, setSaveStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
   const canvasRef = useRef<HTMLDivElement>(null)
 
+  // Interaction state
+  const [mode, setMode] = useState<InteractionMode>('idle')
+  const [drawStart, setDrawStart] = useState<{ x: number; y: number } | null>(null)
+  const [drawCurrent, setDrawCurrent] = useState<{ x: number; y: number } | null>(null)
+  const dragRef = useRef<{
+    fieldId: string
+    startMouse: { x: number; y: number }
+    startField: { x: number; y: number; width: number; height: number }
+  } | null>(null)
+
+  // Sync initialFields prop → state whenever it changes (handles reopen with fresh DB data)
+  useEffect(() => {
+    const safe = Array.isArray(initialFields) ? initialFields : []
+    setFields(safe)
+  }, [initialFields])
+
   const selectedField = fields.find((f) => f.id === selectedFieldId) ?? null
 
-  const getRelativePos = useCallback((e: React.MouseEvent) => {
+  const getRelativePos = useCallback((e: React.MouseEvent | MouseEvent) => {
     const rect = canvasRef.current?.getBoundingClientRect()
     if (!rect) return { x: 0, y: 0 }
     return {
@@ -67,56 +85,121 @@ export function FieldEditor({
     }
   }, [])
 
+  // ── Drawing new fields ──
+
   function handleCanvasMouseDown(e: React.MouseEvent) {
-    // Only start drawing if clicking on the canvas background (not on an existing field)
-    if ((e.target as HTMLElement).dataset.fieldOverlay) return
+    if ((e.target as HTMLElement).closest('[data-field-overlay]')) return
     const pos = getRelativePos(e)
-    setDrawing(true)
+    setMode('drawing')
     setDrawStart(pos)
     setDrawCurrent(pos)
     setSelectedFieldId(null)
   }
 
-  function handleCanvasMouseMove(e: React.MouseEvent) {
-    if (!drawing) return
-    setDrawCurrent(getRelativePos(e))
+  // ── Moving existing fields ──
+
+  function handleFieldMoveStart(e: React.MouseEvent, fieldId: string) {
+    e.stopPropagation()
+    e.preventDefault()
+    const field = fields.find((f) => f.id === fieldId)
+    if (!field) return
+    setSelectedFieldId(fieldId)
+    setMode('moving')
+    dragRef.current = {
+      fieldId,
+      startMouse: getRelativePos(e),
+      startField: { x: field.x, y: field.y, width: field.width, height: field.height },
+    }
   }
 
-  function handleCanvasMouseUp() {
-    if (!drawing || !drawStart || !drawCurrent) {
-      setDrawing(false)
+  // ── Resizing existing fields ──
+
+  function handleFieldResizeStart(e: React.MouseEvent, fieldId: string) {
+    e.stopPropagation()
+    e.preventDefault()
+    const field = fields.find((f) => f.id === fieldId)
+    if (!field) return
+    setSelectedFieldId(fieldId)
+    setMode('resizing')
+    dragRef.current = {
+      fieldId,
+      startMouse: getRelativePos(e),
+      startField: { x: field.x, y: field.y, width: field.width, height: field.height },
+    }
+  }
+
+  // ── Unified mouse move ──
+
+  function handleCanvasMouseMove(e: React.MouseEvent) {
+    const pos = getRelativePos(e)
+
+    if (mode === 'drawing') {
+      setDrawCurrent(pos)
       return
     }
 
-    const x = Math.min(drawStart.x, drawCurrent.x)
-    const y = Math.min(drawStart.y, drawCurrent.y)
-    const width = Math.abs(drawCurrent.x - drawStart.x)
-    const height = Math.abs(drawCurrent.y - drawStart.y)
+    if ((mode === 'moving' || mode === 'resizing') && dragRef.current) {
+      const { fieldId, startMouse, startField } = dragRef.current
+      const dx = pos.x - startMouse.x
+      const dy = pos.y - startMouse.y
 
-    // Minimum size threshold (2% of canvas)
-    if (width > 2 && height > 2) {
-      const newField: EditableFieldDef = {
-        id: generateId(),
-        name: `field_${fields.length + 1}`,
-        label: `Field ${fields.length + 1}`,
-        type: 'text',
-        x: Math.round(x * 10) / 10,
-        y: Math.round(y * 10) / 10,
-        width: Math.round(width * 10) / 10,
-        height: Math.round(height * 10) / 10,
-        fontSize: 16,
-        fontFamily: 'body',
-        fontWeight: 'normal',
-        color: '#033839',
-        textAlign: 'left',
+      setFields((prev) =>
+        prev.map((f) => {
+          if (f.id !== fieldId) return f
+          if (mode === 'moving') {
+            return {
+              ...f,
+              x: Math.round(Math.max(0, Math.min(100 - startField.width, startField.x + dx)) * 10) / 10,
+              y: Math.round(Math.max(0, Math.min(100 - startField.height, startField.y + dy)) * 10) / 10,
+            }
+          }
+          // resizing
+          const newW = Math.max(2, startField.width + dx)
+          const newH = Math.max(2, startField.height + dy)
+          return {
+            ...f,
+            width: Math.round(Math.min(100 - startField.x, newW) * 10) / 10,
+            height: Math.round(Math.min(100 - startField.y, newH) * 10) / 10,
+          }
+        })
+      )
+    }
+  }
+
+  // ── Unified mouse up ──
+
+  function handleCanvasMouseUp() {
+    if (mode === 'drawing' && drawStart && drawCurrent) {
+      const x = Math.min(drawStart.x, drawCurrent.x)
+      const y = Math.min(drawStart.y, drawCurrent.y)
+      const width = Math.abs(drawCurrent.x - drawStart.x)
+      const height = Math.abs(drawCurrent.y - drawStart.y)
+
+      if (width > 2 && height > 2) {
+        const newField: EditableFieldDef = {
+          id: generateId(),
+          name: `field_${fields.length + 1}`,
+          label: `Field ${fields.length + 1}`,
+          type: 'text',
+          x: Math.round(x * 10) / 10,
+          y: Math.round(y * 10) / 10,
+          width: Math.round(width * 10) / 10,
+          height: Math.round(height * 10) / 10,
+          fontSize: 16,
+          fontFamily: 'body',
+          fontWeight: 'normal',
+          color: '#033839',
+          textAlign: 'left',
+        }
+        setFields((prev) => [...prev, newField])
+        setSelectedFieldId(newField.id)
       }
-      setFields((prev) => [...prev, newField])
-      setSelectedFieldId(newField.id)
     }
 
-    setDrawing(false)
+    setMode('idle')
     setDrawStart(null)
     setDrawCurrent(null)
+    dragRef.current = null
   }
 
   function updateField(id: string, updates: Partial<EditableFieldDef>) {
@@ -147,7 +230,6 @@ export function FieldEditor({
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
       if (e.key === 'Delete' || e.key === 'Backspace') {
-        // Only delete if not focused on an input
         if (
           selectedFieldId &&
           !(e.target instanceof HTMLInputElement) &&
@@ -165,7 +247,7 @@ export function FieldEditor({
     return () => window.removeEventListener('keydown', handleKey)
   }, [selectedFieldId])
 
-  const drawRect = drawing && drawStart && drawCurrent
+  const drawRect = mode === 'drawing' && drawStart && drawCurrent
     ? {
         x: Math.min(drawStart.x, drawCurrent.x),
         y: Math.min(drawStart.y, drawCurrent.y),
@@ -205,54 +287,86 @@ export function FieldEditor({
             <div className="flex-1 overflow-auto p-6">
               <div
                 ref={canvasRef}
-                className="relative mx-auto cursor-crosshair select-none overflow-hidden rounded-lg border-2 border-gray-200 bg-gray-100"
-                style={{ maxWidth: 960, aspectRatio: '16/9' }}
+                style={{
+                  position: 'relative',
+                  width: '100%',
+                  maxWidth: 960,
+                  margin: '0 auto',
+                  cursor: 'crosshair',
+                  userSelect: 'none',
+                  borderRadius: 8,
+                  border: '2px solid #e5e7eb',
+                  background: '#f3f4f6',
+                }}
                 onMouseDown={handleCanvasMouseDown}
                 onMouseMove={handleCanvasMouseMove}
                 onMouseUp={handleCanvasMouseUp}
                 onMouseLeave={() => {
-                  if (drawing) handleCanvasMouseUp()
+                  if (mode !== 'idle') handleCanvasMouseUp()
                 }}
               >
                 <img
                   src={slideImageUrl}
                   alt={slideLabel}
-                  className="h-full w-full object-contain"
                   draggable={false}
+                  style={{ display: 'block', width: '100%', height: 'auto' }}
                 />
 
                 {/* Existing field overlays */}
                 {fields.map((field, i) => {
-                  const color = FIELD_COLORS[i % FIELD_COLORS.length]
                   const isSelected = field.id === selectedFieldId
                   return (
                     <div
                       key={field.id}
                       data-field-overlay="true"
-                      className="absolute cursor-pointer"
                       style={{
+                        position: 'absolute',
                         left: `${field.x}%`,
                         top: `${field.y}%`,
                         width: `${field.width}%`,
                         height: `${field.height}%`,
-                        border: `2px solid ${color}`,
-                        backgroundColor: `${color}20`,
-                        outline: isSelected ? `2px solid ${color}` : 'none',
-                        outlineOffset: 2,
+                        border: isSelected ? '2px solid #033839' : '2px solid #1AB0C4',
+                        backgroundColor: isSelected ? 'rgba(3, 56, 57, 0.2)' : 'rgba(26, 176, 196, 0.15)',
                         zIndex: isSelected ? 20 : 10,
+                        cursor: 'move',
+                        boxSizing: 'border-box',
                       }}
                       onClick={(e) => {
                         e.stopPropagation()
                         setSelectedFieldId(field.id)
                       }}
-                      onMouseDown={(e) => e.stopPropagation()}
+                      onMouseDown={(e) => handleFieldMoveStart(e, field.id)}
                     >
                       <span
-                        className="absolute left-0 top-0 px-1 py-0.5 text-[10px] font-heading font-semibold text-white"
-                        style={{ backgroundColor: color }}
+                        style={{
+                          position: 'absolute',
+                          left: 0,
+                          top: 0,
+                          padding: '1px 5px',
+                          fontSize: 10,
+                          fontWeight: 600,
+                          lineHeight: '16px',
+                          color: '#fff',
+                          backgroundColor: isSelected ? '#033839' : '#1AB0C4',
+                          whiteSpace: 'nowrap',
+                        }}
                       >
                         {field.label}
                       </span>
+                      {isSelected && (
+                        <div
+                          style={{
+                            position: 'absolute',
+                            bottom: 0,
+                            right: 0,
+                            width: 10,
+                            height: 10,
+                            cursor: 'se-resize',
+                            backgroundColor: '#033839',
+                          }}
+                          onMouseDown={(e) => handleFieldResizeStart(e, field.id)}
+                        />
+                      )}
                     </div>
                   )
                 })}
@@ -260,13 +374,15 @@ export function FieldEditor({
                 {/* Drawing rectangle */}
                 {drawRect && (
                   <div
-                    className="pointer-events-none absolute border-2 border-dashed border-hoxton-turquoise"
                     style={{
+                      position: 'absolute',
                       left: `${drawRect.x}%`,
                       top: `${drawRect.y}%`,
                       width: `${drawRect.width}%`,
                       height: `${drawRect.height}%`,
+                      border: '2px dashed #1AB0C4',
                       backgroundColor: 'rgba(26, 176, 196, 0.1)',
+                      pointerEvents: 'none',
                     }}
                   />
                 )}

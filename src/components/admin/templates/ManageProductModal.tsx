@@ -26,6 +26,37 @@ import { logAudit } from '../../../lib/audit'
 import type { DbProductModule, DbProductSlide, DbRegion, EditableFieldDef } from '../../../types'
 import type { UploadProgress } from '../../../lib/upload'
 
+/** Robustly extract EditableFieldDef[] from whatever Supabase returns for a JSONB column */
+function parseEditableFields(raw: unknown): EditableFieldDef[] {
+  if (!raw) return []
+
+  // Direct array (normal JSONB return)
+  if (Array.isArray(raw)) return raw as EditableFieldDef[]
+
+  // String (double-encoded or text column) — parse and check
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw)
+      if (Array.isArray(parsed)) return parsed as EditableFieldDef[]
+    } catch { /* ignore parse errors */ }
+    return []
+  }
+
+  // Object — might be wrapped like {fields: [...]} or {0: {...}, 1: {...}}
+  if (typeof raw === 'object') {
+    const obj = raw as Record<string, unknown>
+    if (Array.isArray(obj.fields)) return obj.fields as EditableFieldDef[]
+    if (Array.isArray(obj.data)) return obj.data as EditableFieldDef[]
+    if ('0' in obj) {
+      const arr = Object.values(obj)
+      if (arr.length > 0 && typeof arr[0] === 'object') return arr as EditableFieldDef[]
+    }
+  }
+
+  console.warn('[parseEditableFields] Unrecognized format:', typeof raw, raw)
+  return []
+}
+
 interface ManageProductModalProps {
   module: DbProductModule
   regions: DbRegion[]
@@ -51,7 +82,9 @@ export function ManageProductModal({ module: mod, regions, userId, onClose, onRe
   const [replacingSlide, setReplacingSlide] = useState<number | null>(null)
   const [saving, setSaving] = useState(false)
   const [hasReordered, setHasReordered] = useState(false)
+  // Field editor state — snapshots captured at click time so refetches can't clobber them
   const [editingFieldsSlide, setEditingFieldsSlide] = useState<SlideItem | null>(null)
+  const [editingInitialFields, setEditingInitialFields] = useState<EditableFieldDef[]>([])
 
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -63,32 +96,48 @@ export function ManageProductModal({ module: mod, regions, userId, onClose, onRe
   const fetchSlides = useCallback(async () => {
     setLoading(true)
 
-    const { data: slideData } = await supabase
-      .from('product_slides')
-      .select('*')
-      .eq('module_id', mod.id)
-      .order('slide_number')
+    // Fetch slides via Edge Function (service role) to bypass RLS
+    console.log('[fetchSlides] Calling get-slide-fields with parentId:', mod.id)
+    let dbSlides: DbProductSlide[] = []
+    try {
+      const { data: fnResult, error: fnError } = await supabase.functions.invoke('get-slide-fields', {
+        body: { slideType: 'product', parentId: mod.id },
+      })
 
-    if (slideData && slideData.length > 0) {
+      console.log('[fetchSlides] get-slide-fields response — error:', fnError, '| data type:', typeof fnResult, '| data:', JSON.stringify(fnResult)?.slice(0, 500))
+
+      if (fnError) {
+        console.error('[fetchSlides] get-slide-fields error:', fnError)
+      } else if (fnResult?.slides && Array.isArray(fnResult.slides)) {
+        dbSlides = fnResult.slides as DbProductSlide[]
+      } else if (Array.isArray(fnResult)) {
+        dbSlides = fnResult as DbProductSlide[]
+      }
+    } catch (fetchErr) {
+      console.error('[fetchSlides] get-slide-fields exception:', fetchErr)
+    }
+
+    console.log('[fetchSlides] Parsed dbSlides count:', dbSlides.length, dbSlides.length > 0 ? '| first slide id: ' + dbSlides[0]?.id + ', fields: ' + (Array.isArray(dbSlides[0]?.editable_fields) ? dbSlides[0].editable_fields.length : 0) : '')
+    const dbMap = new Map(dbSlides.map((s) => [s.slide_number, s]))
+
+    // Use whichever is larger: DB record count or slides_count
+    const totalSlides = Math.max(dbSlides.length, mod.slides_count)
+
+    if (totalSlides > 0) {
       setSlides(
-        (slideData as DbProductSlide[]).map((s) => ({
-          id: `slide-${s.slide_number}`,
-          dbId: s.id,
-          slideNumber: s.slide_number,
-          imagePath: s.image_path || `${storagePath}/Slide${s.slide_number}.PNG`,
-          editableFields: Array.isArray(s.editable_fields) ? s.editable_fields : [],
-        }))
-      )
-    } else if (mod.slides_count > 0) {
-      // No DB records but count exists — build from count
-      setSlides(
-        Array.from({ length: mod.slides_count }, (_, i) => ({
-          id: `slide-${i + 1}`,
-          dbId: null,
-          slideNumber: i + 1,
-          imagePath: `${storagePath}/Slide${i + 1}.PNG`,
-          editableFields: [],
-        }))
+        Array.from({ length: totalSlides }, (_, i) => {
+          const num = i + 1
+          const db = dbMap.get(num)
+          // Parse editable_fields — handle JSONB returned as array, object, or string
+          const fields = parseEditableFields(db?.editable_fields)
+          return {
+            id: `slide-${num}`,
+            dbId: db?.id ?? null,
+            slideNumber: num,
+            imagePath: db?.image_path || `${storagePath}/Slide${num}.PNG`,
+            editableFields: fields,
+          }
+        })
       )
     } else {
       setSlides([])
@@ -269,51 +318,48 @@ export function ManageProductModal({ module: mod, regions, userId, onClose, onRe
   }
 
   async function handleSaveFields(slideItem: SlideItem, fields: EditableFieldDef[]): Promise<{ success: boolean; error?: string }> {
+    console.log('[SaveFields] === START (Edge Function) ===')
+    console.log('[SaveFields] slideItem:', { dbId: slideItem.dbId, slideNumber: slideItem.slideNumber })
+    console.log('[SaveFields] fields to save (count=' + fields.length + '):', JSON.stringify(fields))
+
     try {
-      let dbId = slideItem.dbId
+      const payload = {
+        slideType: 'product' as const,
+        slideId: slideItem.dbId,
+        editableFields: fields,
+        parentId: mod.id,
+        slideNumber: slideItem.slideNumber,
+        imagePath: slideItem.imagePath,
+      }
+      console.log('[SaveFields] Invoking save-slide-fields with:', JSON.stringify(payload))
 
-      // Create DB record if it doesn't exist yet
-      if (!dbId) {
-        const { data, error: insertErr } = await supabase
-          .from('product_slides')
-          .insert({
-            module_id: mod.id,
-            slide_number: slideItem.slideNumber,
-            title: `Slide ${slideItem.slideNumber}`,
-            slide_type: fields.length > 0 ? 'editable' : 'static',
-            image_path: slideItem.imagePath,
-            editable_fields: fields as unknown as Record<string, unknown>[],
-          })
-          .select('id')
-          .single()
+      const { data, error } = await supabase.functions.invoke('save-slide-fields', {
+        body: payload,
+      })
 
-        if (insertErr || !data) {
-          console.error('Failed to create slide record:', insertErr)
-          return { success: false, error: insertErr?.message || 'Failed to create slide record' }
-        }
+      console.log('[SaveFields] Edge Function response — data:', JSON.stringify(data), '| error:', JSON.stringify(error))
 
-        dbId = data.id
-      } else {
-        // Update existing record
-        const { error: updateErr } = await supabase
-          .from('product_slides')
-          .update({
-            editable_fields: fields as unknown as Record<string, unknown>[],
-            slide_type: fields.length > 0 ? 'editable' : 'static',
-          })
-          .eq('id', dbId)
-
-        if (updateErr) {
-          console.error('Failed to update slide fields:', updateErr)
-          return { success: false, error: updateErr.message }
-        }
+      if (error) {
+        const msg = typeof error === 'object' && 'message' in error ? (error as { message: string }).message : String(error)
+        console.error('[SaveFields] Edge Function network/invoke error:', msg)
+        return { success: false, error: msg }
       }
 
-      // Update local state with fields and dbId
+      if (data?.error) {
+        console.error('[SaveFields] Server returned error:', data.error)
+        return { success: false, error: data.error }
+      }
+
+      const savedRow = data?.data
+      const newDbId = savedRow?.id || slideItem.dbId
+
+      console.log('[SaveFields] Success — saved row id:', newDbId, 'editable_fields count:', Array.isArray(savedRow?.editable_fields) ? savedRow.editable_fields.length : 'N/A')
+
+      // Update local state — this keeps the badge correct without refetching
       setSlides((prev) =>
         prev.map((s) =>
           s.slideNumber === slideItem.slideNumber
-            ? { ...s, editableFields: fields, dbId }
+            ? { ...s, editableFields: fields, dbId: newDbId }
             : s
         )
       )
@@ -323,9 +369,10 @@ export function ManageProductModal({ module: mod, regions, userId, onClose, onRe
         field_count: fields.length,
       }, userId)
 
+      console.log('[SaveFields] === DONE — success ===')
       return { success: true }
     } catch (err) {
-      console.error('Unexpected error saving fields:', err)
+      console.error('[SaveFields] === EXCEPTION ===', err)
       return { success: false, error: 'An unexpected error occurred' }
     }
   }
@@ -432,7 +479,11 @@ export function ManageProductModal({ module: mod, regions, userId, onClose, onRe
                               imageSrc={getSlideUrl(slide.imagePath)}
                               onReplace={(file) => handleReplaceSlide(slide.slideNumber, file)}
                               onDelete={() => handleDeleteSlide(slide.slideNumber)}
-                              onEditFields={() => setEditingFieldsSlide(slide)}
+                              onEditFields={() => {
+                                console.log('[ProductModal] Fields clicked — slide:', JSON.stringify({ id: slide.id, dbId: slide.dbId, slideNumber: slide.slideNumber, fieldsCount: slide.editableFields.length }))
+                                setEditingFieldsSlide(slide)
+                                setEditingInitialFields([...slide.editableFields])
+                              }}
                               fieldCount={slide.editableFields.length}
                               isReplacing={replacingSlide === slide.slideNumber}
                             />
@@ -468,9 +519,10 @@ export function ManageProductModal({ module: mod, regions, userId, onClose, onRe
 
       {editingFieldsSlide && (
         <FieldEditor
+          key={`product-${editingFieldsSlide.slideNumber}`}
           slideImageUrl={getSlideUrl(editingFieldsSlide.imagePath)}
           slideLabel={`${mod.name} — Slide ${editingFieldsSlide.slideNumber}`}
-          initialFields={editingFieldsSlide.editableFields}
+          initialFields={editingInitialFields}
           onSave={(fields) => handleSaveFields(editingFieldsSlide, fields)}
           onClose={() => setEditingFieldsSlide(null)}
         />

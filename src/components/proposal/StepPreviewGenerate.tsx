@@ -214,8 +214,9 @@ export function StepPreviewGenerate({ draft, onSaveDraft, proposalId }: StepPrev
   const [activeSlideIndex, setActiveSlideIndex] = useState(0)
 
   const region = REGIONS.find((r) => r.id === draft.regionId)
-  const selectedModules = PRODUCT_MODULES.filter((p) =>
-    draft.selectedProducts.includes(p.id)
+  const selectedModules = useMemo(
+    () => PRODUCT_MODULES.filter((p) => draft.selectedProducts.includes(p.id)),
+    [draft.selectedProducts]
   )
 
   const initialSlides = useMemo(() => {
@@ -675,7 +676,7 @@ export function StepPreviewGenerate({ draft, onSaveDraft, proposalId }: StepPrev
                 if (data?.signedUrl) {
                   const a = document.createElement('a')
                   a.href = data.signedUrl
-                  a.download = `${draft.clientName.replace(/[^a-zA-Z0-9-_]/g, '_')}.pdf`
+                  a.download = `${(draft.clientName || 'proposal').replace(/[^a-zA-Z0-9-_]/g, '_')}.pdf`
                   a.click()
                 }
               }}

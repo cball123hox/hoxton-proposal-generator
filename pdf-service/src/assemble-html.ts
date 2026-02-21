@@ -40,8 +40,8 @@ export interface ProposalData {
   staticAssetsBaseUrl: string
 }
 
-function escapeHtml(text: string): string {
-  return text
+function escapeHtml(text: unknown): string {
+  return String(text ?? '')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
@@ -83,7 +83,7 @@ function renderEditableFieldOverlays(
       }
 
       if (field.type === 'table') {
-        const rows = value.split('\n').filter((r) => r.trim())
+        const rows = String(value ?? '').split('\n').filter((r) => r.trim())
         const tableHtml = rows
           .map((row) => {
             const cells = row.split('|').map((c) => c.trim())
@@ -94,7 +94,7 @@ function renderEditableFieldOverlays(
         return `<div style="position:absolute;left:${field.x}%;top:${field.y}%;width:${field.width}%;height:${field.height}%;overflow:hidden;font-family:${fontFamily};color:${field.color};text-align:${field.textAlign};"><table style="width:100%;border-collapse:collapse;">${tableHtml}</table></div>`
       }
 
-      const escapedValue = escapeHtml(value)
+      const escapedValue = escapeHtml(String(value ?? ''))
 
       return `<div style="position:absolute;left:${field.x}%;top:${field.y}%;width:${field.width}%;height:${field.height}%;display:flex;align-items:flex-start;overflow:hidden;font-family:${fontFamily};font-size:${field.fontSize}px;font-weight:${fontWeightMap[field.fontWeight] || '400'};color:${field.color};text-align:${field.textAlign};line-height:1.4;padding:2px 4px;"><span style="width:100%;text-align:${field.textAlign};">${escapedValue}</span></div>`
     })
