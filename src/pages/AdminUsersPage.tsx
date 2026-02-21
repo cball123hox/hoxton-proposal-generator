@@ -60,6 +60,16 @@ export function AdminUsersPage() {
     fetchUsers()
   }, [])
 
+  // Escape key to close edit modal
+  useEffect(() => {
+    if (!editUser) return
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') setEditUser(null)
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [editUser])
+
   async function fetchUsers() {
     setLoading(true)
     const { data } = await supabase

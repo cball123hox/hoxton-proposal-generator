@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { ChevronLeft, Save, ChevronRight, Loader2 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
+import { useKeyboardShortcut } from '../hooks/useKeyboardShortcut'
 import { ProposalProgress } from '../components/proposal/ProposalProgress'
 import { StepClientDetails } from '../components/proposal/StepClientDetails'
 import { StepRegionSelect } from '../components/proposal/StepRegionSelect'
@@ -80,6 +81,10 @@ export function NewProposalPage() {
       setDraft((prev) => ({ ...prev, ...updates })),
     []
   )
+
+  // Cmd/Ctrl+S to save draft
+  const canSaveDraft = !!draft.clientName.trim() && !!draft.regionId
+  useKeyboardShortcut('s', () => { if (canSaveDraft && !saving) saveDraft() }, { ctrl: true, enabled: canSaveDraft })
 
   const isStepValid = (): boolean => {
     switch (step) {
@@ -203,7 +208,7 @@ export function NewProposalPage() {
       </div>
 
       {/* Bottom navigation bar */}
-      <div className="fixed bottom-0 left-64 right-0 z-30 border-t border-gray-100 bg-white px-8 py-4">
+      <div className="fixed bottom-0 left-0 right-0 z-30 border-t border-gray-100 bg-white px-8 py-4 lg:left-64">
         <div className="flex items-center justify-between">
           <div>
             {isEditMode && step <= 2 ? null : step > 1 ? (

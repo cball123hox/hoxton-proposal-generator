@@ -23,6 +23,7 @@ import { supabase } from '../../../lib/supabase'
 import { getSlideUrl } from '../../../lib/storage'
 import { uploadSlides, replaceSingleSlide, deleteSlideFile } from '../../../lib/upload'
 import { logAudit } from '../../../lib/audit'
+import { logger } from '../../../lib/logger'
 import type { DbProductModule, DbProductSlide, DbRegion, EditableFieldDef } from '../../../types'
 import type { UploadProgress } from '../../../lib/upload'
 
@@ -53,7 +54,7 @@ function parseEditableFields(raw: unknown): EditableFieldDef[] {
     }
   }
 
-  console.warn('[parseEditableFields] Unrecognized format:', typeof raw, raw)
+  logger.warn('[parseEditableFields] Unrecognized format:', typeof raw, raw)
   return []
 }
 
@@ -97,27 +98,27 @@ export function ManageProductModal({ module: mod, regions, userId, onClose, onRe
     setLoading(true)
 
     // Fetch slides via Edge Function (service role) to bypass RLS
-    console.log('[fetchSlides] Calling get-slide-fields with parentId:', mod.id)
+    logger.log('[fetchSlides] Calling get-slide-fields with parentId:', mod.id)
     let dbSlides: DbProductSlide[] = []
     try {
       const { data: fnResult, error: fnError } = await supabase.functions.invoke('get-slide-fields', {
         body: { slideType: 'product', parentId: mod.id },
       })
 
-      console.log('[fetchSlides] get-slide-fields response — error:', fnError, '| data type:', typeof fnResult, '| data:', JSON.stringify(fnResult)?.slice(0, 500))
+      logger.log('[fetchSlides] get-slide-fields response — error:', fnError, '| data type:', typeof fnResult, '| data:', JSON.stringify(fnResult)?.slice(0, 500))
 
       if (fnError) {
-        console.error('[fetchSlides] get-slide-fields error:', fnError)
+        logger.error('[fetchSlides] get-slide-fields error:', fnError)
       } else if (fnResult?.slides && Array.isArray(fnResult.slides)) {
         dbSlides = fnResult.slides as DbProductSlide[]
       } else if (Array.isArray(fnResult)) {
         dbSlides = fnResult as DbProductSlide[]
       }
     } catch (fetchErr) {
-      console.error('[fetchSlides] get-slide-fields exception:', fetchErr)
+      logger.error('[fetchSlides] get-slide-fields exception:', fetchErr)
     }
 
-    console.log('[fetchSlides] Parsed dbSlides count:', dbSlides.length, dbSlides.length > 0 ? '| first slide id: ' + dbSlides[0]?.id + ', fields: ' + (Array.isArray(dbSlides[0]?.editable_fields) ? dbSlides[0].editable_fields.length : 0) : '')
+    logger.log('[fetchSlides] Parsed dbSlides count:', dbSlides.length, dbSlides.length > 0 ? '| first slide id: ' + dbSlides[0]?.id + ', fields: ' + (Array.isArray(dbSlides[0]?.editable_fields) ? dbSlides[0].editable_fields.length : 0) : '')
     const dbMap = new Map(dbSlides.map((s) => [s.slide_number, s]))
 
     // Use whichever is larger: DB record count or slides_count
@@ -150,6 +151,15 @@ export function ManageProductModal({ module: mod, regions, userId, onClose, onRe
     fetchSlides()
   }, [fetchSlides])
 
+  // Escape key to close (only when FieldEditor is not open)
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape' && !editingFieldsSlide) onClose()
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [editingFieldsSlide, onClose])
+
   function toggleRegion(regionId: string) {
     setManagedRegions((prev) =>
       prev.includes(regionId)
@@ -180,7 +190,7 @@ export function ManageProductModal({ module: mod, regions, userId, onClose, onRe
 
     const errors = results.filter((r) => r.error)
     if (errors.length > 0) {
-      console.error('Upload errors:', errors)
+      logger.error('Upload errors:', errors)
     }
 
     const successfulUploads = results.filter((r) => !r.error)
@@ -318,9 +328,9 @@ export function ManageProductModal({ module: mod, regions, userId, onClose, onRe
   }
 
   async function handleSaveFields(slideItem: SlideItem, fields: EditableFieldDef[]): Promise<{ success: boolean; error?: string }> {
-    console.log('[SaveFields] === START (Edge Function) ===')
-    console.log('[SaveFields] slideItem:', { dbId: slideItem.dbId, slideNumber: slideItem.slideNumber })
-    console.log('[SaveFields] fields to save (count=' + fields.length + '):', JSON.stringify(fields))
+    logger.log('[SaveFields] === START (Edge Function) ===')
+    logger.log('[SaveFields] slideItem:', { dbId: slideItem.dbId, slideNumber: slideItem.slideNumber })
+    logger.log('[SaveFields] fields to save (count=' + fields.length + '):', JSON.stringify(fields))
 
     try {
       const payload = {
@@ -331,29 +341,29 @@ export function ManageProductModal({ module: mod, regions, userId, onClose, onRe
         slideNumber: slideItem.slideNumber,
         imagePath: slideItem.imagePath,
       }
-      console.log('[SaveFields] Invoking save-slide-fields with:', JSON.stringify(payload))
+      logger.log('[SaveFields] Invoking save-slide-fields with:', JSON.stringify(payload))
 
       const { data, error } = await supabase.functions.invoke('save-slide-fields', {
         body: payload,
       })
 
-      console.log('[SaveFields] Edge Function response — data:', JSON.stringify(data), '| error:', JSON.stringify(error))
+      logger.log('[SaveFields] Edge Function response — data:', JSON.stringify(data), '| error:', JSON.stringify(error))
 
       if (error) {
         const msg = typeof error === 'object' && 'message' in error ? (error as { message: string }).message : String(error)
-        console.error('[SaveFields] Edge Function network/invoke error:', msg)
+        logger.error('[SaveFields] Edge Function network/invoke error:', msg)
         return { success: false, error: msg }
       }
 
       if (data?.error) {
-        console.error('[SaveFields] Server returned error:', data.error)
+        logger.error('[SaveFields] Server returned error:', data.error)
         return { success: false, error: data.error }
       }
 
       const savedRow = data?.data
       const newDbId = savedRow?.id || slideItem.dbId
 
-      console.log('[SaveFields] Success — saved row id:', newDbId, 'editable_fields count:', Array.isArray(savedRow?.editable_fields) ? savedRow.editable_fields.length : 'N/A')
+      logger.log('[SaveFields] Success — saved row id:', newDbId, 'editable_fields count:', Array.isArray(savedRow?.editable_fields) ? savedRow.editable_fields.length : 'N/A')
 
       // Update local state — this keeps the badge correct without refetching
       setSlides((prev) =>
@@ -369,10 +379,10 @@ export function ManageProductModal({ module: mod, regions, userId, onClose, onRe
         field_count: fields.length,
       }, userId)
 
-      console.log('[SaveFields] === DONE — success ===')
+      logger.log('[SaveFields] === DONE — success ===')
       return { success: true }
     } catch (err) {
-      console.error('[SaveFields] === EXCEPTION ===', err)
+      logger.error('[SaveFields] === EXCEPTION ===', err)
       return { success: false, error: 'An unexpected error occurred' }
     }
   }
@@ -480,7 +490,7 @@ export function ManageProductModal({ module: mod, regions, userId, onClose, onRe
                               onReplace={(file) => handleReplaceSlide(slide.slideNumber, file)}
                               onDelete={() => handleDeleteSlide(slide.slideNumber)}
                               onEditFields={() => {
-                                console.log('[ProductModal] Fields clicked — slide:', JSON.stringify({ id: slide.id, dbId: slide.dbId, slideNumber: slide.slideNumber, fieldsCount: slide.editableFields.length }))
+                                logger.log('[ProductModal] Fields clicked — slide:', JSON.stringify({ id: slide.id, dbId: slide.dbId, slideNumber: slide.slideNumber, fieldsCount: slide.editableFields.length }))
                                 setEditingFieldsSlide(slide)
                                 setEditingInitialFields([...slide.editableFields])
                               }}

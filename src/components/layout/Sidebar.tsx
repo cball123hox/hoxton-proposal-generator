@@ -29,13 +29,66 @@ const adminItems = [
   { to: '/admin/audit-log', label: 'Audit Log', icon: ClipboardList },
 ]
 
-export function Sidebar() {
+interface SidebarProps {
+  isOpen: boolean
+  onClose: () => void
+}
+
+export function Sidebar({ isOpen, onClose }: SidebarProps) {
   const { profile, signOut } = useAuth()
   const { pathname } = useLocation()
   const isAdmin = profile?.role === 'system_admin'
 
+  function handleNavClick() {
+    onClose()
+  }
+
   return (
-    <aside className="fixed left-0 top-0 z-40 flex h-screen w-64 flex-col bg-hoxton-deep text-white">
+    <>
+      {/* Desktop sidebar — always visible on lg+ */}
+      <aside className="fixed left-0 top-0 z-40 hidden h-screen w-64 flex-col bg-hoxton-deep text-white lg:flex">
+        <SidebarContent
+          pathname={pathname}
+          isAdmin={isAdmin}
+          profile={profile}
+          signOut={signOut}
+          onNavClick={handleNavClick}
+        />
+      </aside>
+
+      {/* Mobile drawer */}
+      <aside
+        className={`fixed left-0 top-0 z-50 flex h-screen w-64 flex-col bg-hoxton-deep text-white transition-transform duration-200 lg:hidden ${
+          isOpen ? 'translate-x-0' : '-translate-x-full'
+        }`}
+      >
+        <SidebarContent
+          pathname={pathname}
+          isAdmin={isAdmin}
+          profile={profile}
+          signOut={signOut}
+          onNavClick={handleNavClick}
+        />
+      </aside>
+    </>
+  )
+}
+
+function SidebarContent({
+  pathname,
+  isAdmin,
+  profile,
+  signOut,
+  onNavClick,
+}: {
+  pathname: string
+  isAdmin: boolean
+  profile: ReturnType<typeof useAuth>['profile']
+  signOut: () => Promise<void>
+  onNavClick: () => void
+}) {
+  return (
+    <>
       {/* Logo */}
       <div className="flex h-16 items-center px-6">
         <span className="text-xl font-heading font-semibold tracking-tight">
@@ -51,6 +104,7 @@ export function Sidebar() {
             <Link
               key={item.to}
               to={item.to}
+              onClick={onNavClick}
               className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-heading font-medium transition-colors ${
                 isActive
                   ? 'bg-hoxton-turquoise/20 text-hoxton-mint'
@@ -72,6 +126,7 @@ export function Sidebar() {
                 <Link
                   key={item.to}
                   to={item.to}
+                  onClick={onNavClick}
                   className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-heading font-medium transition-colors ${
                     isActive
                       ? 'bg-hoxton-turquoise/20 text-hoxton-mint'
@@ -110,6 +165,6 @@ export function Sidebar() {
           Sign out
         </button>
       </div>
-    </aside>
+    </>
   )
 }

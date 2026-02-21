@@ -1,73 +1,99 @@
-# React + TypeScript + Vite
+# Hoxton Wealth — Proposal Generator
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Internal tool for Hoxton Wealth advisers to build branded client proposals. Advisers select a region, input client details, optionally run an AI-powered call transcript summary, pick relevant product modules, customise slide content, and generate a downloadable PDF.
 
-Currently, two official plugins are available:
+## Tech Stack
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+- **Frontend:** React 19, TypeScript 5.9, Vite 7, Tailwind CSS v4
+- **Backend / Auth:** Supabase (Auth, Postgres, Edge Functions, Storage)
+- **PDF Service:** Express + Puppeteer (separate Node service)
+- **Icons:** Lucide React
+- **Drag & Drop:** dnd-kit
 
-## React Compiler
+## Local Development
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+### Prerequisites
 
-## Expanding the ESLint configuration
+- Node.js 20+
+- A Supabase project with auth, database, storage, and edge functions configured
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+### 1. Clone & install
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+git clone <repo-url>
+cd hoxton-proposal-generator
+npm install
+cd pdf-service && npm install && cd ..
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+### 2. Environment variables
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+Copy the example files and fill in your values:
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+cp .env.example .env.local
+cp pdf-service/.env.example pdf-service/.env
 ```
+
+### 3. Run the app
+
+```bash
+# Frontend (port 5173)
+npm run dev
+
+# PDF service (port 3001) — in a separate terminal
+cd pdf-service && npm run dev
+```
+
+## Environment Variables
+
+### Frontend (`.env.local`)
+
+| Variable | Description |
+|---|---|
+| `VITE_SUPABASE_URL` | Supabase project URL |
+| `VITE_SUPABASE_ANON_KEY` | Supabase anonymous/public key |
+| `VITE_PDF_SERVICE_URL` | URL of the PDF generation service |
+
+### PDF Service (`pdf-service/.env`)
+
+| Variable | Description |
+|---|---|
+| `PORT` | Server port (default 3001) |
+| `SUPABASE_URL` | Supabase project URL |
+| `SUPABASE_SERVICE_ROLE_KEY` | Service role key (bypasses RLS) |
+| `ALLOWED_ORIGINS` | Comma-separated CORS origins |
+| `STATIC_ASSETS_BASE_URL` | Base URL for slide image assets |
+
+## Folder Structure
+
+```
+src/
+  components/
+    admin/       — Admin panels (users, templates, slides)
+    auth/        — ProtectedRoute
+    layout/      — AppLayout, Sidebar
+    proposal/    — Step components for the proposal wizard
+    ui/          — Shared UI (Modal, Toast, Badge, Spinner, etc.)
+  hooks/         — Custom React hooks
+  lib/           — Supabase client, auth, logger, constants, utilities
+  pages/         — Route-level page components
+  types/         — TypeScript interfaces
+
+pdf-service/
+  src/
+    index.ts         — Express server with /generate and /health
+    generate-pdf.ts  — Puppeteer PDF generation
+    assemble-html.ts — HTML template assembly
+    templates/       — HTML/CSS templates for PDF slides
+```
+
+## Deployment
+
+### Frontend (Vercel)
+
+The project includes a `vercel.json` with SPA rewrites, security headers, and cache configuration. Deploy by connecting the repo to Vercel — it will auto-detect Vite.
+
+### PDF Service
+
+Deploy as a standalone Node.js service (e.g. Railway, Fly.io, Cloud Run). Ensure Puppeteer/Chromium is available in the runtime. Set the environment variables listed above.

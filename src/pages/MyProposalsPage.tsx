@@ -71,7 +71,7 @@ export function MyProposalsPage() {
         .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1)
 
       if (!isAdmin) {
-        query = query.eq('advisor_id', user.id)
+        query = query.eq('advisor_id', user!.id)
       }
 
       if (tab !== 'all') {

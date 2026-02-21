@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
 import type { User } from '@supabase/supabase-js'
 import { supabase } from './supabase'
+import { logger } from './logger'
 import type { Profile } from '../types'
 
 interface AuthContextValue {
@@ -26,7 +27,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .single()
 
     if (error) {
-      console.error('[Auth] Failed to fetch profile:', error.message, error)
+      logger.error('[Auth] Failed to fetch profile:', error.message, error)
     }
 
     setProfile(data as Profile | null)
@@ -41,7 +42,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           await fetchProfile(session.user.id)
         }
       } catch (err) {
-        console.error('[Auth] Error during init:', err)
+        logger.error('[Auth] Error during init:', err)
       } finally {
         setLoading(false)
       }

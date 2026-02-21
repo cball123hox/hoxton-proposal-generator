@@ -26,8 +26,11 @@ export function SlideDropZone({
 }: SlideDropZoneProps) {
   const [dragOver, setDragOver] = useState(false)
   const [stagedFiles, setStagedFiles] = useState<FilePreview[]>([])
+  const [sizeError, setSizeError] = useState('')
   const fileInputRef = useRef<HTMLInputElement>(null)
   const dragCounter = useRef(0)
+
+  const MAX_FILE_SIZE = 10 * 1024 * 1024 // 10MB
 
   // Clean up object URLs on unmount or when staged files change
   useEffect(() => {
@@ -37,12 +40,23 @@ export function SlideDropZone({
   }, [stagedFiles])
 
   const stageFiles = useCallback((files: File[]) => {
+    setSizeError('')
     const imageFiles = files.filter((f) =>
       ['image/png', 'image/jpeg', 'image/jpg'].includes(f.type)
     )
     if (imageFiles.length === 0) return
 
-    const previews: FilePreview[] = imageFiles.map((file, i) => ({
+    const oversized = imageFiles.filter((f) => f.size > MAX_FILE_SIZE)
+    if (oversized.length > 0) {
+      setSizeError(`${oversized.length} file(s) exceed the 10MB limit and were skipped`)
+      const valid = imageFiles.filter((f) => f.size <= MAX_FILE_SIZE)
+      if (valid.length === 0) return
+      files = valid
+    } else {
+      files = imageFiles
+    }
+
+    const previews: FilePreview[] = files.map((file, i) => ({
       file,
       url: URL.createObjectURL(file),
       name: `Slide ${i + 1}.PNG`,
@@ -252,9 +266,12 @@ export function SlideDropZone({
           Browse Files
         </button>
         <p className="mt-3 text-[11px] font-body text-hoxton-slate/60">
-          PNG, JPG, JPEG &middot; Multiple files accepted &middot; Auto-numbered in selection order
+          PNG, JPG, JPEG &middot; Max 10MB per file &middot; Auto-numbered in selection order
         </p>
       </div>
+      {sizeError && (
+        <p className="mt-2 text-xs font-body text-red-600">{sizeError}</p>
+      )}
     </div>
   )
 }

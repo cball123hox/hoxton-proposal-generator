@@ -31,6 +31,7 @@ import {
 import { REGIONS, PRODUCT_MODULES } from '../../lib/constants'
 import { supabase } from '../../lib/supabase'
 import { getSlideUrl } from '../../lib/storage'
+import { logger } from '../../lib/logger'
 import type { ProposalDraft } from '../../types'
 
 interface StepPreviewGenerateProps {
@@ -103,6 +104,113 @@ function SlideThumb({
       className={`object-cover ${className}`}
       onError={() => setFailed(true)}
     />
+  )
+}
+
+/* ── Field overlays for slide preview ── */
+
+const FONT_WEIGHT_MAP: Record<string, string> = {
+  normal: '400',
+  medium: '500',
+  semibold: '600',
+  bold: '700',
+}
+
+function SlideFieldOverlays({
+  fields,
+  values,
+}: {
+  fields: EditableFieldDef[]
+  values: Record<string, string>
+}) {
+  return (
+    <>
+      {fields.map((field) => {
+        const value = values[field.name]
+        if (!value) return null
+
+        const fontFamily =
+          field.fontFamily === 'heading'
+            ? "'FT Calhern', 'Helvetica Neue', sans-serif"
+            : "'Sentient', Georgia, serif"
+
+        // Scale font sizes proportionally: at 1280px wide, 1cqw = 12.8px
+        const scaledFontSize = `${field.fontSize / 12.8}cqw`
+
+        if (field.type === 'table') {
+          const rows = value.split('\n').filter((r) => r.trim())
+          const scaledTableFontSize = `${(field.fontSize * 0.85) / 12.8}cqw`
+          return (
+            <div
+              key={field.id}
+              style={{
+                position: 'absolute',
+                left: `${field.x}%`,
+                top: `${field.y}%`,
+                width: `${field.width}%`,
+                height: `${field.height}%`,
+                overflow: 'hidden',
+                fontFamily,
+                color: field.color,
+                textAlign: field.textAlign,
+                fontSize: scaledTableFontSize,
+              }}
+            >
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <tbody>
+                  {rows.map((row, ri) => {
+                    const cells = row.split('|').map((c) => c.trim())
+                    return (
+                      <tr key={ri}>
+                        {cells.map((c, ci) => (
+                          <td
+                            key={ci}
+                            style={{
+                              padding: '0.15em 0.4em',
+                              borderBottom: '1px solid rgba(0,0,0,0.1)',
+                            }}
+                          >
+                            {c}
+                          </td>
+                        ))}
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )
+        }
+
+        return (
+          <div
+            key={field.id}
+            style={{
+              position: 'absolute',
+              left: `${field.x}%`,
+              top: `${field.y}%`,
+              width: `${field.width}%`,
+              height: `${field.height}%`,
+              display: 'flex',
+              alignItems: 'flex-start',
+              overflow: 'hidden',
+              fontFamily,
+              fontSize: scaledFontSize,
+              fontWeight: FONT_WEIGHT_MAP[field.fontWeight] || '400',
+              color: field.color,
+              textAlign: field.textAlign,
+              lineHeight: 1.4,
+              padding: '0.15em 0.3em',
+              whiteSpace: 'pre-wrap',
+            }}
+          >
+            <span style={{ width: '100%', textAlign: field.textAlign }}>
+              {value}
+            </span>
+          </div>
+        )
+      })}
+    </>
   )
 }
 
@@ -297,51 +405,57 @@ export function StepPreviewGenerate({ draft, onSaveDraft, proposalId }: StepPrev
     setSlides(initialSlides)
   }, [initialSlides])
 
-  // Fetch editable field definitions from DB and attach to slides
+  // Fetch editable field definitions via Edge Functions and attach to slides
   useEffect(() => {
     async function fetchFieldDefs() {
       const fieldMap: Record<string, EditableFieldDef[]> = {}
 
-      // Fetch intro slide fields
+      // Fetch intro slide fields via Edge Function
       if (region) {
-        const { data: introPack } = await supabase
-          .from('intro_packs')
-          .select('id')
-          .eq('region_id', draft.regionId)
-          .eq('is_active', true)
-          .single()
+        try {
+          const { data: introPack } = await supabase
+            .from('intro_packs')
+            .select('id')
+            .eq('region_id', draft.regionId)
+            .eq('is_active', true)
+            .single()
 
-        if (introPack) {
-          const { data: introSlides } = await supabase
-            .from('intro_slides')
-            .select('slide_number, editable_fields')
-            .eq('intro_pack_id', introPack.id)
+          if (introPack) {
+            const { data, error } = await supabase.functions.invoke('get-slide-fields', {
+              body: { slideType: 'intro', parentId: introPack.id },
+            })
 
-          if (introSlides) {
-            for (const s of introSlides) {
-              const fields = Array.isArray(s.editable_fields) ? s.editable_fields as EditableFieldDef[] : []
-              if (fields.length > 0) {
-                fieldMap[`intro-${s.slide_number}`] = fields
+            if (!error && data?.slides) {
+              for (const s of data.slides) {
+                const fields = Array.isArray(s.editable_fields) ? s.editable_fields as EditableFieldDef[] : []
+                if (fields.length > 0) {
+                  fieldMap[`intro-${s.slide_number}`] = fields
+                }
               }
             }
           }
+        } catch (err) {
+          logger.warn('[Preview] Failed to fetch intro field defs:', err)
         }
       }
 
-      // Fetch product slide fields
+      // Fetch product slide fields via Edge Function
       for (const mod of selectedModules) {
-        const { data: productSlides } = await supabase
-          .from('product_slides')
-          .select('slide_number, editable_fields')
-          .eq('module_id', mod.id)
+        try {
+          const { data, error } = await supabase.functions.invoke('get-slide-fields', {
+            body: { slideType: 'product', parentId: mod.id },
+          })
 
-        if (productSlides) {
-          for (const s of productSlides) {
-            const fields = Array.isArray(s.editable_fields) ? s.editable_fields as EditableFieldDef[] : []
-            if (fields.length > 0) {
-              fieldMap[`product-${mod.id}-${s.slide_number}`] = fields
+          if (!error && data?.slides) {
+            for (const s of data.slides) {
+              const fields = Array.isArray(s.editable_fields) ? s.editable_fields as EditableFieldDef[] : []
+              if (fields.length > 0) {
+                fieldMap[`product-${mod.id}-${s.slide_number}`] = fields
+              }
             }
           }
+        } catch (err) {
+          logger.warn(`[Preview] Failed to fetch product field defs for ${mod.id}:`, err)
         }
       }
 
@@ -491,7 +605,7 @@ export function StepPreviewGenerate({ draft, onSaveDraft, proposalId }: StepPrev
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unknown error'
       setGenError(message)
-      console.error('[PDF] Generation failed:', message)
+      logger.error('[PDF] Generation failed:', message)
     } finally {
       setGenerating(false)
     }
@@ -620,13 +734,24 @@ export function StepPreviewGenerate({ draft, onSaveDraft, proposalId }: StepPrev
 
           {/* Large preview */}
           <div className="flex flex-1 items-center justify-center p-4">
-            <div className="aspect-video w-full overflow-hidden rounded-lg border border-gray-100 bg-gray-50">
+            <div
+              className="relative aspect-video w-full overflow-hidden rounded-lg border border-gray-100 bg-gray-50"
+              style={{ containerType: 'inline-size' }}
+            >
               {activeSlide && (
-                <SlideThumb
-                  src={activeSlide.imagePath}
-                  alt={activeSlide.label}
-                  className="h-full w-full"
-                />
+                <>
+                  <SlideThumb
+                    src={activeSlide.imagePath}
+                    alt={activeSlide.label}
+                    className="h-full w-full"
+                  />
+                  {activeSlide.editableFields && activeSlide.editableFields.length > 0 && (
+                    <SlideFieldOverlays
+                      fields={activeSlide.editableFields}
+                      values={draft.editableFieldsData?.[activeSlide.id] || {}}
+                    />
+                  )}
+                </>
               )}
             </div>
           </div>

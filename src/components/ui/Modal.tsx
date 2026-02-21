@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from 'react'
+import { useEffect, useCallback, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
 
@@ -10,14 +10,25 @@ interface ModalProps {
 }
 
 export function Modal({ open, onClose, title, children }: ModalProps) {
+  const handleEscape = useCallback(
+    (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    },
+    [onClose]
+  )
+
   useEffect(() => {
     if (open) {
       document.body.style.overflow = 'hidden'
+      window.addEventListener('keydown', handleEscape)
     } else {
       document.body.style.overflow = ''
     }
-    return () => { document.body.style.overflow = '' }
-  }, [open])
+    return () => {
+      document.body.style.overflow = ''
+      window.removeEventListener('keydown', handleEscape)
+    }
+  }, [open, handleEscape])
 
   if (!open) return null
 

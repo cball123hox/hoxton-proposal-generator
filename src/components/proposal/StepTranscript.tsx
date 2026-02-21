@@ -9,6 +9,7 @@ import {
   X,
 } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
+import { logger } from '../../lib/logger'
 import type { ProposalDraft } from '../../types'
 
 type InputMode = 'paste' | 'upload'
@@ -51,7 +52,7 @@ async function extractText(file: File): Promise<string> {
     for (let i = 1; i <= pdf.numPages; i++) {
       const page = await pdf.getPage(i)
       const content = await page.getTextContent()
-      pages.push(content.items.map((item: { str?: string }) => item.str ?? '').join(' '))
+      pages.push(content.items.map((item) => ('str' in item ? (item.str ?? '') : '')).join(' '))
     }
     return pages.join('\n\n')
   }
@@ -61,8 +62,8 @@ async function extractText(file: File): Promise<string> {
 
 export function StepTranscript({ draft, updateDraft, onSkip }: StepTranscriptProps) {
   const [mode, setMode] = useState<InputMode>('paste')
-  const [parsing, setParsing] = useState(false)
-  const [parsed, setParsed] = useState(false)
+  const [summarising, setSummarising] = useState(false)
+  const [summarised, setSummarised] = useState(false)
   const [error, setError] = useState('')
 
   // Upload state
@@ -73,44 +74,44 @@ export function StepTranscript({ draft, updateDraft, onSkip }: StepTranscriptPro
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   function clearState() {
-    if (parsed) setParsed(false)
+    if (summarised) setSummarised(false)
     if (error) setError('')
   }
 
-  // Elapsed seconds counter while parsing
+  // Elapsed seconds counter while summarising with AI
   const [elapsed, setElapsed] = useState(0)
 
   useEffect(() => {
-    if (!parsing) {
+    if (!summarising) {
       setElapsed(0)
       return
     }
     const interval = setInterval(() => setElapsed((s) => s + 1), 1000)
     return () => clearInterval(interval)
-  }, [parsing])
+  }, [summarising])
 
-  async function handleParse() {
-    setParsing(true)
+  async function handleSummarise() {
+    setSummarising(true)
     setError('')
 
-    console.log('[StepTranscript] Starting parse, transcript length:', draft.transcript.length)
+    logger.log('[StepTranscript] Starting summarise, transcript length:', draft.transcript.length)
 
     try {
-      console.log('[StepTranscript] Calling supabase.functions.invoke...')
+      logger.log('[StepTranscript] Calling supabase.functions.invoke...')
       const { data, error: fnError } = await supabase.functions.invoke(
         'parse-transcript',
         { body: { transcript: draft.transcript } }
       )
-      console.log('[StepTranscript] Response received:', { data, fnError })
+      logger.log('[StepTranscript] Response received:', { data, fnError })
 
       if (fnError) {
         // Extract the actual error body from the edge function response
         let detail = fnError.message
-        console.error('[StepTranscript] Function error:', fnError)
+        logger.error('[StepTranscript] Function error:', fnError)
         try {
           if (fnError.context && typeof fnError.context.json === 'function') {
             const body = await fnError.context.json()
-            console.error('[StepTranscript] Error body:', body)
+            logger.error('[StepTranscript] Error body:', body)
             detail = body?.error || body?.details || detail
           }
         } catch (_e) {
@@ -120,7 +121,7 @@ export function StepTranscript({ draft, updateDraft, onSkip }: StepTranscriptPro
       }
 
       if (!data?.situation || !data?.objectives || !data?.focus) {
-        console.error('[StepTranscript] Missing fields in response:', data)
+        logger.error('[StepTranscript] Missing fields in response:', data)
         throw new Error(data?.error ?? 'Unexpected response from AI')
       }
 
@@ -131,22 +132,29 @@ export function StepTranscript({ draft, updateDraft, onSkip }: StepTranscriptPro
       }
 
       updateDraft({ aiParsedContext: context, context })
-      setParsed(true)
-      console.log('[StepTranscript] Parse successful')
+      setSummarised(true)
+      logger.log('[StepTranscript] Summary successful')
     } catch (err) {
-      console.error('[StepTranscript] Parse error:', err)
+      logger.error('[StepTranscript] Summary error:', err)
       setError(
-        err instanceof Error ? err.message : 'Failed to parse transcript. Please try again or fill in manually.'
+        err instanceof Error ? err.message : 'Failed to summarise transcript. Please try again or fill in manually.'
       )
     } finally {
-      setParsing(false)
+      setSummarising(false)
     }
   }
+
+  const MAX_FILE_SIZE = 20 * 1024 * 1024 // 20MB
 
   async function processFile(file: File) {
     const ext = file.name.split('.').pop()?.toLowerCase()
     if (!['txt', 'md', 'docx', 'pdf'].includes(ext ?? '')) {
       setUploadError('Unsupported file type. Please upload .txt, .md, .docx, or .pdf')
+      return
+    }
+
+    if (file.size > MAX_FILE_SIZE) {
+      setUploadError('File is too large. Maximum size is 20MB.')
       return
     }
 
@@ -162,7 +170,7 @@ export function StepTranscript({ draft, updateDraft, onSkip }: StepTranscriptPro
       updateDraft({ transcript: text })
       setUploadedFile(file.name)
     } catch (err) {
-      console.error('File extraction error:', err)
+      logger.error('File extraction error:', err)
       setUploadError(
         err instanceof Error ? err.message : 'Failed to read file'
       )
@@ -211,7 +219,7 @@ export function StepTranscript({ draft, updateDraft, onSkip }: StepTranscriptPro
         </span>
       </div>
       <p className="mt-1 mb-4 text-sm font-body text-hoxton-slate">
-        Paste your call transcript or upload a file, then let AI extract the key information
+        Paste your call transcript or upload a file, then let AI summarise the key information
       </p>
 
       <div className="mb-4 rounded-lg border border-hoxton-turquoise/20 bg-hoxton-turquoise/5 px-4 py-2.5">
@@ -365,32 +373,32 @@ export function StepTranscript({ draft, updateDraft, onSkip }: StepTranscriptPro
         </div>
       )}
 
-      {/* Parse + Skip buttons */}
+      {/* Summarise + Skip buttons */}
       <div className="mt-4 flex items-center justify-between">
         <div className="flex flex-col gap-2">
           <button
-            onClick={handleParse}
-            disabled={!draft.transcript.trim() || parsing}
+            onClick={handleSummarise}
+            disabled={!draft.transcript.trim() || summarising}
             className="inline-flex items-center gap-2 rounded-lg bg-hoxton-deep px-5 py-2.5 text-sm font-heading font-semibold text-white transition-colors hover:bg-hoxton-deep/90 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {parsing ? (
+            {summarising ? (
               <>
                 <Loader2 className="h-4 w-4 animate-spin" />
-                Parsing with AI... {elapsed > 0 && `(${elapsed}s)`}
+                Summarising with AI... {elapsed > 0 && `(${elapsed}s)`}
               </>
             ) : (
               <>
                 <Sparkles className="h-4 w-4" />
-                Parse with AI
+                Summarise with AI
               </>
             )}
           </button>
-          {parsing && (
+          {summarising && (
             <p className="text-xs font-body text-hoxton-slate/70">
               {elapsed < 5
                 ? 'Sending transcript to AI...'
                 : elapsed < 15
-                  ? 'AI is reading and analysing the transcript...'
+                  ? 'AI is reading and summarising the transcript...'
                   : 'Still working — this can take up to 30 seconds for longer transcripts...'}
             </p>
           )}
@@ -398,18 +406,18 @@ export function StepTranscript({ draft, updateDraft, onSkip }: StepTranscriptPro
 
         <button
           onClick={onSkip}
-          disabled={parsing}
+          disabled={summarising}
           className="text-sm font-heading font-medium text-hoxton-slate hover:text-hoxton-turquoise disabled:opacity-50"
         >
           Skip — I'll fill it in manually →
         </button>
       </div>
 
-      {parsed && (
+      {summarised && (
         <div className="mt-4 flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3">
           <CheckCircle className="h-5 w-5 text-emerald-600" />
           <span className="text-sm font-heading font-medium text-emerald-800">
-            Parsed successfully — context fields have been pre-filled
+            Summary generated successfully — context fields have been pre-filled
           </span>
         </div>
       )}

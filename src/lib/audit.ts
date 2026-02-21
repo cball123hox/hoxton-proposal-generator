@@ -1,4 +1,5 @@
 import { supabase } from './supabase'
+import { logger } from './logger'
 import type { AuditAction } from '../types'
 
 export async function logAudit(
@@ -16,6 +17,6 @@ export async function logAudit(
     performed_by: userId,
   })
   if (error) {
-    console.error('[Audit] Failed to log:', error.message)
+    logger.error('[Audit] Failed to log:', error.message)
   }
 }
