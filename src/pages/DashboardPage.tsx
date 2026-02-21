@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import {
   Plus,
@@ -6,8 +6,9 @@ import {
   Send,
   Clock,
   PenLine,
-  Eye,
+  ChevronRight,
   ArrowRight,
+  Users,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
@@ -24,6 +25,14 @@ interface ProposalRow {
   created_at: string
   sent_at: string | null
   regions: { display_name: string } | null
+}
+
+interface ClientGroup {
+  clientName: string
+  region: string
+  proposalCount: number
+  latestDate: string
+  latestStatus: ProposalStatus
 }
 
 interface ProposalStats {
@@ -58,7 +67,6 @@ export function DashboardPage() {
   const navigate = useNavigate()
   const [stats, setStats] = useState<ProposalStats>({ total: 0, sentThisMonth: 0, pendingApproval: 0, draft: 0 })
   const [proposals, setProposals] = useState<ProposalRow[]>([])
-  const [openCounts, setOpenCounts] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
 
   const isAdmin = profile?.role === 'system_admin'
@@ -86,33 +94,14 @@ export function DashboardPage() {
         })
       }
 
-      // Fetch recent proposals with region join
+      // Fetch all proposals with region join (for client grouping)
       const { data: recentProposals } = await supabase
         .from('proposals')
         .select('id, client_name, region_id, selected_products, status, created_at, sent_at, regions(display_name)')
         .order('created_at', { ascending: false })
-        .limit(10)
 
       if (recentProposals) {
         setProposals(recentProposals as unknown as ProposalRow[])
-
-        // Fetch open counts for these proposals
-        const proposalIds = recentProposals.map((p) => p.id)
-        if (proposalIds.length > 0) {
-          const { data: events } = await supabase
-            .from('proposal_events')
-            .select('proposal_id')
-            .in('proposal_id', proposalIds)
-            .eq('event_type', 'opened')
-
-          if (events) {
-            const counts: Record<string, number> = {}
-            events.forEach((e) => {
-              counts[e.proposal_id] = (counts[e.proposal_id] || 0) + 1
-            })
-            setOpenCounts(counts)
-          }
-        }
       }
 
       setLoading(false)
@@ -120,6 +109,31 @@ export function DashboardPage() {
 
     fetchDashboard()
   }, [user])
+
+  // Group proposals by client name
+  const clientGroups = useMemo<ClientGroup[]>(() => {
+    const groups = new Map<string, ProposalRow[]>()
+    for (const p of proposals) {
+      const existing = groups.get(p.client_name)
+      if (existing) {
+        existing.push(p)
+      } else {
+        groups.set(p.client_name, [p])
+      }
+    }
+
+    return Array.from(groups.entries()).map(([clientName, clientProposals]) => {
+      // Proposals are already sorted by created_at desc from the query
+      const latest = clientProposals[0]
+      return {
+        clientName,
+        region: latest.regions?.display_name ?? latest.region_id.toUpperCase(),
+        proposalCount: clientProposals.length,
+        latestDate: latest.created_at,
+        latestStatus: latest.status,
+      }
+    })
+  }, [proposals])
 
   const statCards = [
     { label: 'Total Proposals', value: stats.total, icon: FileText, color: 'text-hoxton-deep' },
@@ -189,17 +203,17 @@ export function DashboardPage() {
         ))}
       </div>
 
-      {/* Recent Proposals */}
+      {/* Clients Overview */}
       <div className="rounded-2xl border border-gray-100 bg-white">
         <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
           <h2 className="text-lg font-heading font-semibold text-hoxton-deep">
-            Recent Proposals
+            Clients
           </h2>
           <Link
             to="/proposals"
             className="inline-flex items-center gap-1 text-sm font-heading font-medium text-hoxton-turquoise hover:text-hoxton-turquoise/80"
           >
-            View all
+            View all proposals
             <ArrowRight className="h-4 w-4" />
           </Link>
         </div>
@@ -210,18 +224,17 @@ export function DashboardPage() {
               <div key={i} className="flex items-center gap-6 px-6 py-4 animate-pulse">
                 <div className="h-4 w-32 rounded bg-gray-100" />
                 <div className="h-4 w-20 rounded bg-gray-100" />
-                <div className="h-4 w-20 rounded bg-gray-100" />
+                <div className="h-4 w-16 rounded bg-gray-100" />
                 <div className="h-5 w-24 rounded-full bg-gray-100" />
                 <div className="h-4 w-20 rounded bg-gray-100" />
-                <div className="h-4 w-10 rounded bg-gray-100" />
               </div>
             ))}
           </div>
-        ) : proposals.length === 0 ? (
+        ) : clientGroups.length === 0 ? (
           <div className="px-6 py-16 text-center">
-            <FileText className="mx-auto mb-3 h-10 w-10 text-gray-300" />
+            <Users className="mx-auto mb-3 h-10 w-10 text-gray-300" />
             <p className="font-heading font-medium text-hoxton-deep">
-              No proposals yet
+              No clients yet
             </p>
             <p className="mt-1 text-sm font-body text-gray-400">
               Create your first proposal to get started
@@ -246,51 +259,41 @@ export function DashboardPage() {
                     Region
                   </th>
                   <th className="px-6 py-3 text-xs font-heading font-semibold uppercase tracking-wider text-gray-400">
-                    Products
+                    Proposals
                   </th>
                   <th className="px-6 py-3 text-xs font-heading font-semibold uppercase tracking-wider text-gray-400">
-                    Status
+                    Latest Status
                   </th>
                   <th className="px-6 py-3 text-xs font-heading font-semibold uppercase tracking-wider text-gray-400">
-                    Date
+                    Last Updated
                   </th>
-                  <th className="px-6 py-3 text-xs font-heading font-semibold uppercase tracking-wider text-gray-400">
-                    Opens
-                  </th>
+                  <th className="w-10" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
-                {proposals.map((proposal) => (
+                {clientGroups.map((group) => (
                   <tr
-                    key={proposal.id}
-                    onClick={() => navigate(`/proposals/${proposal.id}`)}
+                    key={group.clientName}
+                    onClick={() => navigate(`/clients/${encodeURIComponent(group.clientName)}`)}
                     className="cursor-pointer transition-colors hover:bg-hoxton-light/50"
                   >
                     <td className="px-6 py-4 text-sm font-heading font-medium text-hoxton-deep">
-                      {proposal.client_name}
+                      {group.clientName}
                     </td>
                     <td className="px-6 py-4 text-sm font-body text-hoxton-slate">
-                      {proposal.regions?.display_name ?? proposal.region_id.toUpperCase()}
+                      {group.region}
                     </td>
                     <td className="px-6 py-4 text-sm font-body text-hoxton-slate">
-                      {proposal.selected_products.length}{' '}
-                      {proposal.selected_products.length === 1 ? 'module' : 'modules'}
+                      {group.proposalCount} {group.proposalCount === 1 ? 'proposal' : 'proposals'}
                     </td>
                     <td className="px-6 py-4">
-                      <StatusBadge status={proposal.status} />
+                      <StatusBadge status={group.latestStatus} />
                     </td>
                     <td className="px-6 py-4 text-sm font-body text-gray-400">
-                      {formatDate(proposal.created_at)}
+                      {formatDate(group.latestDate)}
                     </td>
                     <td className="px-6 py-4">
-                      {openCounts[proposal.id] ? (
-                        <span className="inline-flex items-center gap-1 text-sm font-body text-hoxton-slate">
-                          <Eye className="h-3.5 w-3.5" />
-                          {openCounts[proposal.id]}
-                        </span>
-                      ) : (
-                        <span className="text-sm text-gray-300">&mdash;</span>
-                      )}
+                      <ChevronRight className="h-4 w-4 text-gray-300" />
                     </td>
                   </tr>
                 ))}

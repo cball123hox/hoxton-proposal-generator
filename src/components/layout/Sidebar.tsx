@@ -9,6 +9,7 @@ import {
   LogOut,
 } from 'lucide-react'
 import { useAuth } from '../../lib/auth'
+import { HoxtonLogo } from '../ui/HoxtonLogo'
 
 const navItems = [
   { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -91,9 +92,7 @@ function SidebarContent({
     <>
       {/* Logo */}
       <div className="flex h-16 items-center px-6">
-        <span className="text-xl font-heading font-semibold tracking-tight">
-          Hoxton<span className="font-normal text-hoxton-mint">Wealth</span>
-        </span>
+        <HoxtonLogo size="md" variant="light" />
       </div>
 
       {/* Navigation */}

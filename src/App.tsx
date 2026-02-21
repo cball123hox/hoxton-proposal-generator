@@ -13,6 +13,7 @@ const MyProposalsPage = lazy(() => import('./pages/MyProposalsPage').then((m) =>
 const ProposalDetailPage = lazy(() => import('./pages/ProposalDetailPage').then((m) => ({ default: m.ProposalDetailPage })))
 const AdminUsersPage = lazy(() => import('./pages/AdminUsersPage').then((m) => ({ default: m.AdminUsersPage })))
 const AdminTemplatesPage = lazy(() => import('./pages/AdminTemplatesPage').then((m) => ({ default: m.AdminTemplatesPage })))
+const ClientProposalsPage = lazy(() => import('./pages/ClientProposalsPage').then((m) => ({ default: m.ClientProposalsPage })))
 const AdminAuditLogPage = lazy(() => import('./pages/AdminAuditLogPage').then((m) => ({ default: m.AdminAuditLogPage })))
 
 export default function App() {
@@ -36,6 +37,7 @@ export default function App() {
               <Route path="/proposals/new" element={<NewProposalPage />} />
               <Route path="/proposals" element={<MyProposalsPage />} />
               <Route path="/proposals/:id" element={<ProposalDetailPage />} />
+              <Route path="/clients/:clientName" element={<ClientProposalsPage />} />
 
               {/* Admin routes */}
               <Route

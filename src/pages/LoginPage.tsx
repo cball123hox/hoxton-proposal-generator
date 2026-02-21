@@ -56,10 +56,10 @@ export function LoginPage() {
         </p>
 
         {/* Card */}
-        <div className="rounded-2xl border border-white/10 bg-white/5 p-8 backdrop-blur-sm">
+        <div className="rounded-2xl bg-[#f9fafb] p-8 shadow-xl">
           <form onSubmit={handleSubmit} className="space-y-5">
             <div className="space-y-1.5">
-              <label htmlFor="email" className="block text-sm font-heading font-semibold text-white">
+              <label htmlFor="email" className="block text-sm font-heading font-semibold text-hoxton-deep">
                 Email Address
               </label>
               <input
@@ -70,12 +70,12 @@ export function LoginPage() {
                 placeholder="you@hoxtonwealth.com"
                 required
                 autoComplete="email"
-                className="w-full rounded-lg border border-white/15 bg-white/8 px-4 py-3 text-sm font-body text-white placeholder:text-hoxton-slate/60 focus:border-hoxton-turquoise focus:outline-none focus:ring-1 focus:ring-hoxton-turquoise"
+                className="w-full rounded-lg border border-gray-200 bg-white px-4 py-3 text-sm font-body text-hoxton-deep placeholder:text-gray-400 focus:border-hoxton-turquoise focus:outline-none focus:ring-1 focus:ring-hoxton-turquoise"
               />
             </div>
 
             <div className="space-y-1.5">
-              <label htmlFor="password" className="block text-sm font-heading font-semibold text-white">
+              <label htmlFor="password" className="block text-sm font-heading font-semibold text-hoxton-deep">
                 Password
               </label>
               <input
@@ -86,12 +86,12 @@ export function LoginPage() {
                 placeholder="Enter your password"
                 required
                 autoComplete="current-password"
-                className="w-full rounded-lg border border-white/15 bg-white/8 px-4 py-3 text-sm font-body text-white placeholder:text-hoxton-slate/60 focus:border-hoxton-turquoise focus:outline-none focus:ring-1 focus:ring-hoxton-turquoise"
+                className="w-full rounded-lg border border-gray-200 bg-white px-4 py-3 text-sm font-body text-hoxton-deep placeholder:text-gray-400 focus:border-hoxton-turquoise focus:outline-none focus:ring-1 focus:ring-hoxton-turquoise"
               />
             </div>
 
             {error && (
-              <div className="rounded-lg border border-red-400/30 bg-red-500/15 px-4 py-3 text-sm font-body text-red-300">
+              <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-body text-red-600">
                 {error}
               </div>
             )}
