@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react'
 import { Navigate } from 'react-router-dom'
 import { useAuth } from '../lib/auth'
 import { Loader2 } from 'lucide-react'
+import { HoxtonLogo } from '../components/ui/HoxtonLogo'
 
 export function LoginPage() {
   const { user, loading: authLoading, signIn } = useAuth()
@@ -42,19 +43,16 @@ export function LoginPage() {
       <div className="pointer-events-none absolute left-1/2 top-1/3 h-[300px] w-[300px] -translate-x-1/2 rounded-full bg-hoxton-slate/10 blur-3xl" />
 
       <div className="relative z-10 w-full max-w-md px-4">
+        {/* Logo — on dark background above card */}
+        <div className="mb-8 flex flex-col items-center">
+          <HoxtonLogo size="lg" variant="light" />
+          <p className="mt-3 text-sm font-heading font-medium text-hoxton-grey">
+            Proposal Generator
+          </p>
+        </div>
+
         {/* Login Card */}
         <div className="rounded-2xl bg-white p-8 shadow-2xl shadow-black/20">
-          {/* Logo */}
-          <div className="mb-2 text-center">
-            <h1 className="text-3xl font-heading font-semibold tracking-tight text-hoxton-deep">
-              Hoxton<span className="font-normal text-hoxton-turquoise">Wealth</span>
-            </h1>
-            <p className="mt-1 text-sm font-heading font-medium text-hoxton-slate">
-              Proposal Generator
-            </p>
-          </div>
-
-          <div className="my-6 border-t border-hoxton-grey" />
 
           {/* Form */}
           <form onSubmit={handleSubmit} className="space-y-4">

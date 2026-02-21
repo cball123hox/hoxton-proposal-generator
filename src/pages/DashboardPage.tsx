@@ -12,6 +12,7 @@ import {
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { StatusBadge } from '../components/ui/StatusBadge'
+import { HoxtonLogo } from '../components/ui/HoxtonLogo'
 import type { ProposalStatus } from '../types'
 
 interface ProposalRow {
@@ -129,7 +130,10 @@ export function DashboardPage() {
 
   return (
     <div>
-      {/* Greeting */}
+      {/* Logo + Greeting */}
+      <div className="mb-2">
+        <HoxtonLogo size="sm" variant="dark" />
+      </div>
       <div className="mb-8 flex items-start justify-between">
         <div>
           <h1 className="text-2xl font-heading font-semibold text-hoxton-deep">
