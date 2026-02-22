@@ -27,6 +27,9 @@ import {
   ChevronDown,
   ChevronRight as ChevronRightIcon,
   Pencil,
+  ToggleLeft,
+  ToggleRight,
+  EyeOff,
 } from 'lucide-react'
 import { REGIONS, PRODUCT_MODULES } from '../../lib/constants'
 import { supabase } from '../../lib/supabase'
@@ -38,6 +41,7 @@ interface StepPreviewGenerateProps {
   draft: ProposalDraft
   onSaveDraft: () => Promise<string | null>
   proposalId: string | null
+  updateDraft: (updates: Partial<ProposalDraft>) => void
 }
 
 interface EditableFieldDef {
@@ -72,6 +76,7 @@ interface SectionGroup {
   name: string
   slideIds: string[]
   count: number
+  enabledCount: number
 }
 
 /* ── Slide thumbnail with fallback ── */
@@ -221,17 +226,21 @@ function SortableSlide({
   globalIndex,
   totalSlides,
   isActive,
+  isDisabled,
   onMoveUp,
   onMoveDown,
   onSelect,
+  onToggleEnabled,
 }: {
   slide: SlideItem
   globalIndex: number
   totalSlides: number
   isActive: boolean
+  isDisabled: boolean
   onMoveUp: () => void
   onMoveDown: () => void
   onSelect: () => void
+  onToggleEnabled: () => void
 }) {
   const {
     attributes,
@@ -257,7 +266,7 @@ function SortableSlide({
           : isActive
             ? 'border-hoxton-turquoise/50 bg-hoxton-turquoise/5'
             : 'border-transparent hover:border-gray-100 hover:bg-gray-50'
-      }`}
+      } ${isDisabled ? 'opacity-40' : ''}`}
     >
       <button
         {...attributes}
@@ -268,14 +277,26 @@ function SortableSlide({
       </button>
 
       <button
+        onClick={(e) => { e.stopPropagation(); onToggleEnabled() }}
+        className={`shrink-0 rounded p-0.5 transition-colors ${
+          isDisabled
+            ? 'text-gray-300 hover:text-gray-500'
+            : 'text-hoxton-turquoise hover:text-hoxton-turquoise/70'
+        }`}
+        title={isDisabled ? 'Enable slide' : 'Disable slide'}
+      >
+        {isDisabled ? <ToggleLeft className="h-4 w-4" /> : <ToggleRight className="h-4 w-4" />}
+      </button>
+
+      <button
         onClick={onSelect}
         className="flex min-w-0 flex-1 items-center gap-2"
       >
-        <div className="h-[34px] w-[60px] shrink-0 overflow-hidden rounded border border-gray-100">
+        <div className={`h-[34px] w-[60px] shrink-0 overflow-hidden rounded border border-gray-100 ${isDisabled ? 'grayscale' : ''}`}>
           <SlideThumb src={slide.imagePath} alt={slide.label} className="h-full w-full" />
         </div>
         <div className="min-w-0 flex-1">
-          <p className="truncate text-xs font-heading font-medium text-hoxton-deep">
+          <p className={`truncate text-xs font-heading font-medium ${isDisabled ? 'text-gray-400 line-through' : 'text-hoxton-deep'}`}>
             {slide.label}
           </p>
           <p className="text-[10px] font-body text-gray-400">
@@ -284,7 +305,7 @@ function SortableSlide({
         </div>
       </button>
 
-      {slide.isEditable && (
+      {slide.isEditable && !isDisabled && (
         <span className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-hoxton-turquoise/10 px-1.5 py-px text-[9px] font-heading font-semibold text-hoxton-turquoise">
           <Pencil className="h-2 w-2" />
           Edit
@@ -313,13 +334,30 @@ function SortableSlide({
 
 /* ── Main component ── */
 
-export function StepPreviewGenerate({ draft, onSaveDraft, proposalId }: StepPreviewGenerateProps) {
+export function StepPreviewGenerate({ draft, onSaveDraft, proposalId, updateDraft }: StepPreviewGenerateProps) {
   const [generating, setGenerating] = useState(false)
   const [generated, setGenerated] = useState(false)
   const [pdfPath, setPdfPath] = useState<string | null>(null)
   const [genError, setGenError] = useState<string | null>(null)
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set())
   const [activeSlideIndex, setActiveSlideIndex] = useState(0)
+  const [disabledSlides, setDisabledSlides] = useState<Set<string>>(
+    () => new Set(draft.disabledSlides || [])
+  )
+
+  const toggleSlideEnabled = useCallback((slideId: string) => {
+    setDisabledSlides((prev) => {
+      const next = new Set(prev)
+      if (next.has(slideId)) next.delete(slideId)
+      else next.add(slideId)
+      return next
+    })
+  }, [])
+
+  // Sync disabledSlides back to draft
+  useEffect(() => {
+    updateDraft({ disabledSlides: Array.from(disabledSlides) })
+  }, [disabledSlides, updateDraft])
 
   const region = REGIONS.find((r) => r.id === draft.regionId)
   const selectedModules = useMemo(
@@ -480,15 +518,16 @@ export function StepPreviewGenerate({ draft, onSaveDraft, proposalId }: StepPrev
     let currentSection = ''
     for (const slide of slides) {
       if (slide.section !== currentSection) {
-        groups.push({ name: slide.section, slideIds: [], count: 0 })
+        groups.push({ name: slide.section, slideIds: [], count: 0, enabledCount: 0 })
         currentSection = slide.section
       }
       const group = groups[groups.length - 1]
       group.slideIds.push(slide.id)
       group.count++
+      if (!disabledSlides.has(slide.id)) group.enabledCount++
     }
     return groups
-  }, [slides])
+  }, [slides, disabledSlides])
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -563,8 +602,9 @@ export function StepPreviewGenerate({ draft, onSaveDraft, proposalId }: StepPrev
         throw new Error('PDF service URL not configured')
       }
 
-      // Build the slide order from current slide arrangement
-      const slideOrderPayload = slides.map((s) => ({
+      // Build the slide order from current slide arrangement, excluding disabled slides
+      const enabledSlides = slides.filter((s) => !disabledSlides.has(s.id))
+      const slideOrderPayload = enabledSlides.map((s) => ({
         id: s.id,
         type: s.id === 'context-summary' ? 'context' as const : 'image' as const,
         imagePath: s.imagePath,
@@ -612,6 +652,8 @@ export function StepPreviewGenerate({ draft, onSaveDraft, proposalId }: StepPrev
   }
 
   const activeSlide = slides[activeSlideIndex]
+  const enabledCount = slides.length - disabledSlides.size
+  const disabledCount = disabledSlides.size
 
   return (
     <div>
@@ -634,7 +676,12 @@ export function StepPreviewGenerate({ draft, onSaveDraft, proposalId }: StepPrev
         </div>
         <div className="rounded-2xl border border-gray-100 bg-white p-4 text-center">
           <p className="text-xs font-heading font-semibold uppercase tracking-wider text-gray-400">Total Slides</p>
-          <p className="mt-1 text-base font-heading font-semibold text-hoxton-turquoise">{slides.length}</p>
+          <p className="mt-1 text-base font-heading font-semibold text-hoxton-turquoise">
+            {enabledCount}
+            {disabledCount > 0 && (
+              <span className="ml-1 text-sm font-normal text-gray-400">of {slides.length}</span>
+            )}
+          </p>
         </div>
       </div>
 
@@ -686,8 +733,14 @@ export function StepPreviewGenerate({ draft, onSaveDraft, proposalId }: StepPrev
                         {hasEditable && (
                           <Pencil className="h-2.5 w-2.5 shrink-0 text-hoxton-turquoise" />
                         )}
-                        <span className="shrink-0 rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-heading font-semibold text-gray-500">
-                          {section.count}
+                        <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-heading font-semibold ${
+                          section.enabledCount < section.count
+                            ? 'bg-amber-50 text-amber-600'
+                            : 'bg-gray-100 text-gray-500'
+                        }`}>
+                          {section.enabledCount < section.count
+                            ? `${section.enabledCount}/${section.count}`
+                            : section.count}
                         </span>
                       </button>
 
@@ -703,11 +756,13 @@ export function StepPreviewGenerate({ draft, onSaveDraft, proposalId }: StepPrev
                                 globalIndex={gi}
                                 totalSlides={slides.length}
                                 isActive={gi === activeSlideIndex}
+                                isDisabled={disabledSlides.has(slide.id)}
                                 onMoveUp={() => gi > 0 && moveSlide(gi, gi - 1)}
                                 onMoveDown={() =>
                                   gi < slides.length - 1 && moveSlide(gi, gi + 1)
                                 }
                                 onSelect={() => setActiveSlideIndex(gi)}
+                                onToggleEnabled={() => toggleSlideEnabled(slide.id)}
                               />
                             )
                           })}
@@ -735,7 +790,9 @@ export function StepPreviewGenerate({ draft, onSaveDraft, proposalId }: StepPrev
           {/* Large preview */}
           <div className="flex flex-1 items-center justify-center p-4">
             <div
-              className="relative aspect-video w-full overflow-hidden rounded-lg border border-gray-100 bg-gray-50"
+              className={`relative aspect-video w-full overflow-hidden rounded-lg border border-gray-100 bg-gray-50 ${
+                activeSlide && disabledSlides.has(activeSlide.id) ? 'grayscale opacity-50' : ''
+              }`}
               style={{ containerType: 'inline-size' }}
             >
               {activeSlide && (
@@ -753,6 +810,14 @@ export function StepPreviewGenerate({ draft, onSaveDraft, proposalId }: StepPrev
                   )}
                 </>
               )}
+              {activeSlide && disabledSlides.has(activeSlide.id) && (
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-gray-900/70 px-4 py-2 text-sm font-heading font-semibold text-white">
+                    <EyeOff className="h-4 w-4" />
+                    Slide Disabled
+                  </span>
+                </div>
+              )}
             </div>
           </div>
 
@@ -768,6 +833,9 @@ export function StepPreviewGenerate({ draft, onSaveDraft, proposalId }: StepPrev
 
             <span className="text-xs font-heading font-medium text-gray-500">
               Slide {activeSlideIndex + 1} of {slides.length}
+              {activeSlide && disabledSlides.has(activeSlide.id) && (
+                <span className="ml-1 text-amber-500">(disabled)</span>
+              )}
             </span>
 
             <button
@@ -786,7 +854,10 @@ export function StepPreviewGenerate({ draft, onSaveDraft, proposalId }: StepPrev
       {/* Bottom — Slide count + Generate */}
       <div className="flex items-center justify-between rounded-2xl border border-gray-100 bg-white px-6 py-4">
         <p className="text-sm font-heading font-semibold text-hoxton-deep">
-          Your proposal: {slides.length} slides
+          Your proposal: {enabledCount} slides
+          {disabledCount > 0 && (
+            <span className="ml-1 font-normal text-gray-400">({disabledCount} disabled)</span>
+          )}
         </p>
 
         {generated && pdfPath ? (
@@ -840,7 +911,7 @@ export function StepPreviewGenerate({ draft, onSaveDraft, proposalId }: StepPrev
               {generating ? (
                 <>
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  Generating... {slides.length} slides
+                  Generating... {enabledCount} slides
                 </>
               ) : (
                 <>

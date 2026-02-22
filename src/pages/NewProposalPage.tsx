@@ -24,6 +24,7 @@ const INITIAL_DRAFT: ProposalDraft = {
   aiParsedContext: null,
   context: { situation: '', objectives: '', focus: '' },
   selectedProducts: [],
+  disabledSlides: [],
   editableFieldsData: {},
 }
 
@@ -63,6 +64,7 @@ export function NewProposalPage() {
           aiParsedContext: data.ai_parsed_context as ProposalDraft['aiParsedContext'] ?? null,
           context: data.summary_context || { situation: '', objectives: '', focus: '' },
           selectedProducts: data.selected_products || [],
+          disabledSlides: data.disabled_slides || [],
           editableFieldsData: data.editable_fields_data || {},
         })
         setProposalId(data.id)
@@ -123,6 +125,7 @@ export function NewProposalPage() {
       transcript_text: draft.transcript || null,
       ai_parsed_context: draft.aiParsedContext,
       editable_fields_data: draft.editableFieldsData,
+      disabled_slides: draft.disabledSlides,
       status: 'draft' as const,
     }
 
@@ -203,7 +206,7 @@ export function NewProposalPage() {
           <StepCustomiseSlides draft={draft} updateDraft={updateDraft} />
         )}
         {step === 7 && (
-          <StepPreviewGenerate draft={draft} onSaveDraft={saveDraft} proposalId={proposalId} />
+          <StepPreviewGenerate draft={draft} onSaveDraft={saveDraft} proposalId={proposalId} updateDraft={updateDraft} />
         )}
       </div>
 

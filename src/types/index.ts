@@ -45,6 +45,7 @@ export interface ProposalDraft {
   aiParsedContext: { situation: string; objectives: string; focus: string } | null
   context: { situation: string; objectives: string; focus: string }
   selectedProducts: string[]
+  disabledSlides: string[]
   editableFieldsData: EditableFieldsData
 }
 
