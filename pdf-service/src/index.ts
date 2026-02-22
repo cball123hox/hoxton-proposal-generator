@@ -14,6 +14,7 @@ const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || ''
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'http://localhost:5173')
   .split(',')
   .map((o) => o.trim())
+  .filter(Boolean)
 
 app.use(
   cors({
@@ -22,9 +23,13 @@ app.use(
       if (!origin || allowedOrigins.includes(origin)) {
         callback(null, true)
       } else {
-        callback(new Error('Not allowed by CORS'))
+        console.warn(`[CORS] Blocked request from origin: ${origin}`)
+        console.warn(`[CORS] Allowed origins: ${allowedOrigins.join(', ')}`)
+        callback(null, false)
       }
     },
+    methods: ['GET', 'POST', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
   })
 )
 
