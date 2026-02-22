@@ -245,8 +245,8 @@ app.post('/generate', async (req, res) => {
   }
 })
 
-app.listen(PORT, () => {
-  console.log(`[PDF Service] Running on port ${PORT}`)
+app.listen(Number(PORT), '0.0.0.0', () => {
+  console.log(`[PDF Service] Running on 0.0.0.0:${PORT}`)
   console.log(`[PDF] Supabase URL: ${SUPABASE_URL}`)
   console.log(`[PDF] Service role key: ${SUPABASE_SERVICE_ROLE_KEY ? 'set' : 'MISSING'}`)
   console.log(`[PDF] Allowed origins: ${allowedOrigins.join(', ')}`)
