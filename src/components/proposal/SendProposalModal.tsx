@@ -115,9 +115,9 @@ export function SendProposalModal({ onClose, proposalId, clientName, clientEmail
     }
   }
 
-  async function handleRevoke(linkId: string) {
+  async function handleRevoke(linkId: string, recipientName?: string) {
     setRevokingId(linkId)
-    const result = await revokeProposalLink(linkId)
+    const result = await revokeProposalLink(linkId, proposalId, recipientName)
     if (result.error) {
       addToast('error', `Failed to revoke: ${result.error}`)
     } else {
@@ -316,7 +316,7 @@ export function SendProposalModal({ onClose, proposalId, clientName, clientEmail
                                   )}
                                   {link.is_active && (
                                     <button
-                                      onClick={() => handleRevoke(link.id)}
+                                      onClick={() => handleRevoke(link.id, link.recipient_name)}
                                       disabled={revokingId === link.id}
                                       className="rounded p-1 text-red-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
                                       title="Revoke link"

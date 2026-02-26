@@ -24,6 +24,7 @@ import {
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
+import { logProposalEvent } from '../lib/proposal-events'
 import { StatusBadge } from '../components/ui/StatusBadge'
 import { Badge } from '../components/ui/Badge'
 import { REGIONS, PRODUCT_MODULES, CATEGORIES } from '../lib/constants'
@@ -38,7 +39,7 @@ type Tab = 'overview' | 'slides' | 'activity' | 'tracking' | 'analytics'
 interface ProposalEvent {
   id: string
   event_type: string
-  metadata: Record<string, unknown> | null
+  event_data: Record<string, unknown> | null
   created_at: string
   actor_id: string | null
 }
@@ -94,28 +95,83 @@ function SlideThumb({ src, alt }: { src: string; alt: string }) {
   )
 }
 
+/* ── Time-ago helper ── */
+function timeAgo(dateStr: string): string {
+  const now = Date.now()
+  const then = new Date(dateStr).getTime()
+  const seconds = Math.floor((now - then) / 1000)
+
+  if (seconds < 60) return 'Just now'
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${minutes}m ago`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}h ago`
+  const days = Math.floor(hours / 24)
+  if (days < 7) return `${days}d ago`
+  return formatDateTime(dateStr)
+}
+
 /* ── Event icon + label mapping ── */
-function eventDisplay(type: string): { icon: React.ReactNode; label: string; color: string } {
+function eventIcon(type: string): { icon: React.ReactNode; color: string } {
   switch (type) {
     case 'created':
-      return { icon: <FileText className="h-4 w-4" />, label: 'Proposal created', color: 'text-hoxton-turquoise' }
+      return { icon: <FileText className="h-4 w-4" />, color: 'text-hoxton-turquoise bg-hoxton-turquoise/10' }
     case 'edited':
-      return { icon: <Pencil className="h-4 w-4" />, label: 'Proposal edited', color: 'text-hoxton-slate' }
+      return { icon: <Pencil className="h-4 w-4" />, color: 'text-hoxton-slate bg-hoxton-slate/10' }
     case 'submitted':
-      return { icon: <Clock className="h-4 w-4" />, label: 'Submitted for approval', color: 'text-amber-500' }
+      return { icon: <Clock className="h-4 w-4" />, color: 'text-amber-500 bg-amber-50' }
     case 'approved':
-      return { icon: <CheckCircle2 className="h-4 w-4" />, label: 'Approved', color: 'text-emerald-600' }
+      return { icon: <CheckCircle2 className="h-4 w-4" />, color: 'text-emerald-600 bg-emerald-50' }
     case 'rejected':
-      return { icon: <XCircle className="h-4 w-4" />, label: 'Rejected', color: 'text-red-500' }
+      return { icon: <XCircle className="h-4 w-4" />, color: 'text-red-500 bg-red-50' }
     case 'sent':
-      return { icon: <Mail className="h-4 w-4" />, label: 'Sent to client', color: 'text-hoxton-turquoise' }
+      return { icon: <Send className="h-4 w-4" />, color: 'text-hoxton-turquoise bg-hoxton-turquoise/10' }
     case 'opened':
-      return { icon: <BarChart3 className="h-4 w-4" />, label: 'Opened by client', color: 'text-emerald-600' }
+      return { icon: <Eye className="h-4 w-4" />, color: 'text-emerald-600 bg-emerald-50' }
     case 'pdf_generated':
-      return { icon: <FileDown className="h-4 w-4" />, label: 'PDF generated', color: 'text-hoxton-deep' }
+      return { icon: <FileDown className="h-4 w-4" />, color: 'text-hoxton-deep bg-hoxton-light' }
+    case 'downloaded':
+      return { icon: <FileDown className="h-4 w-4" />, color: 'text-hoxton-turquoise bg-hoxton-turquoise/10' }
+    case 'link_revoked':
+      return { icon: <XCircle className="h-4 w-4" />, color: 'text-red-500 bg-red-50' }
     default:
-      return { icon: <Clock className="h-4 w-4" />, label: type, color: 'text-gray-400' }
+      return { icon: <Clock className="h-4 w-4" />, color: 'text-gray-400 bg-gray-50' }
   }
+}
+
+function eventLabel(type: string, data: Record<string, unknown> | null): string {
+  const name = (data?.recipient_name as string) || ''
+  switch (type) {
+    case 'created': return 'Proposal created'
+    case 'edited': return 'Proposal edited'
+    case 'submitted': return 'Submitted for approval'
+    case 'approved': return 'Proposal approved'
+    case 'rejected': return 'Proposal rejected'
+    case 'sent': return name ? `Tracking link sent to ${name}` : 'Tracking link sent'
+    case 'opened': return name ? `Proposal opened by ${name}` : 'Proposal opened by client'
+    case 'pdf_generated': return 'PDF generated'
+    case 'downloaded': return name ? `PDF downloaded by ${name}` : 'PDF downloaded by client'
+    case 'link_revoked': return name ? `Tracking link revoked for ${name}` : 'Tracking link revoked'
+    default: return type
+  }
+}
+
+function eventSubtitle(type: string, data: Record<string, unknown> | null): string | null {
+  if (!data) return null
+  const email = data.recipient_email as string | undefined
+  const device = data.device_type as string | undefined
+  const notes = data.notes as string | undefined
+
+  if (type === 'sent' && email) return email
+  if (type === 'opened') {
+    const parts: string[] = []
+    if (email) parts.push(email)
+    if (device) parts.push(device)
+    return parts.length > 0 ? parts.join(' · ') : null
+  }
+  if (type === 'downloaded' && email) return email
+  if ((type === 'approved' || type === 'rejected') && notes) return notes
+  return null
 }
 
 export function ProposalDetailPage() {
@@ -188,6 +244,26 @@ export function ProposalDetailPage() {
     })
   }, [id])
 
+  // Refresh events helper
+  async function refreshEvents() {
+    if (!id) return
+    // Small delay to let the INSERT propagate
+    await new Promise((r) => setTimeout(r, 300))
+    const { data: eventData } = await supabase
+      .from('proposal_events')
+      .select('*')
+      .eq('proposal_id', id)
+      .order('created_at', { ascending: false })
+    if (eventData) setEvents(eventData as ProposalEvent[])
+  }
+
+  // Auto-refresh events every 30 seconds when on the activity tab
+  useEffect(() => {
+    if (tab !== 'activity' || !id) return
+    const interval = setInterval(refreshEvents, 30_000)
+    return () => clearInterval(interval)
+  }, [tab, id])
+
   /* ── Actions ── */
 
   async function handleGeneratePdf() {
@@ -201,6 +277,8 @@ export function ProposalDetailPage() {
       .update({ pdf_path: pdfPath, pdf_generated_at: new Date().toISOString() })
       .eq('id', proposal.id)
     setProposal({ ...proposal, pdf_path: pdfPath, pdf_generated_at: new Date().toISOString() })
+    logProposalEvent(proposal.id, 'pdf_generated', {}, user?.id)
+    refreshEvents()
     setGenerating(false)
   }
 
@@ -223,6 +301,8 @@ export function ProposalDetailPage() {
       })
       .eq('id', proposal.id)
     setProposal({ ...proposal, status: 'approved', approved_by: user.id, approval_notes: approvalNotes || undefined })
+    logProposalEvent(proposal.id, 'approved', { notes: approvalNotes || undefined }, user.id)
+    refreshEvents()
     setApproving(false)
   }
 
@@ -238,6 +318,8 @@ export function ProposalDetailPage() {
       })
       .eq('id', proposal.id)
     setProposal({ ...proposal, status: 'rejected', approved_by: user.id, approval_notes: approvalNotes || undefined })
+    logProposalEvent(proposal.id, 'rejected', { notes: approvalNotes || undefined }, user.id)
+    refreshEvents()
     setRejecting(false)
   }
 
@@ -738,6 +820,15 @@ export function ProposalDetailPage() {
       {/* ── Tab: Activity ── */}
       {tab === 'activity' && (
         <div className="rounded-2xl border border-gray-100 bg-white">
+          <div className="flex items-center justify-between border-b border-gray-50 px-6 py-3">
+            <h3 className="text-sm font-heading font-semibold text-hoxton-deep">
+              Activity Timeline
+            </h3>
+            <span className="flex items-center gap-1.5 text-[10px] font-body text-gray-400">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              Auto-refreshing
+            </span>
+          </div>
           {events.length === 0 ? (
             <div className="px-6 py-16 text-center">
               <Clock className="mx-auto mb-3 h-10 w-10 text-gray-300" />
@@ -749,22 +840,26 @@ export function ProposalDetailPage() {
           ) : (
             <div className="divide-y divide-gray-50">
               {events.map((event) => {
-                const display = eventDisplay(event.event_type)
+                const display = eventIcon(event.event_type)
+                const label = eventLabel(event.event_type, event.event_data)
+                const subtitle = eventSubtitle(event.event_type, event.event_data)
                 return (
-                  <div key={event.id} className="flex items-start gap-4 px-6 py-4">
-                    <div className={`mt-0.5 ${display.color}`}>{display.icon}</div>
+                  <div key={event.id} className="flex items-start gap-3 px-6 py-4">
+                    <div className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${display.color}`}>
+                      {display.icon}
+                    </div>
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-heading font-medium text-hoxton-deep">
-                        {display.label}
+                        {label}
                       </p>
-                      {event.metadata && Object.keys(event.metadata).length > 0 && (
+                      {subtitle && (
                         <p className="mt-0.5 text-xs font-body text-hoxton-slate">
-                          {JSON.stringify(event.metadata)}
+                          {subtitle}
                         </p>
                       )}
                     </div>
-                    <span className="shrink-0 text-xs font-body text-gray-400">
-                      {formatDateTime(event.created_at)}
+                    <span className="shrink-0 text-xs font-body text-gray-400" title={formatDateTime(event.created_at)}>
+                      {timeAgo(event.created_at)}
                     </span>
                   </div>
                 )

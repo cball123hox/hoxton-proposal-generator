@@ -209,10 +209,10 @@ Deno.serve(async (req) => {
         return jsonResponse({ error: "Token and code required" }, 400)
       }
 
-      // Look up link
+      // Look up link (include proposal_id + recipient info for event logging)
       const { data: link } = await supabaseAdmin
         .from("proposal_links")
-        .select("id")
+        .select("id, proposal_id, recipient_name, recipient_email")
         .eq("token", token)
         .single()
 
@@ -284,6 +284,16 @@ Deno.serve(async (req) => {
           session_expires_at: sessionExpiresAt,
         })
         .eq("id", otp.id)
+
+      // Log 'opened' proposal event
+      await supabaseAdmin.from("proposal_events").insert({
+        proposal_id: link.proposal_id,
+        event_type: "opened",
+        event_data: {
+          recipient_name: link.recipient_name,
+          recipient_email: link.recipient_email,
+        },
+      }).then(() => {}, () => {}) // fire-and-forget
 
       return jsonResponse({
         verified: true,

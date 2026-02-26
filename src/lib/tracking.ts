@@ -1,4 +1,5 @@
 import { supabase } from './supabase'
+import { logProposalEvent } from './proposal-events'
 import type { ProposalLink } from '../types'
 
 const TOKEN_LENGTH = 12
@@ -46,6 +47,12 @@ export async function createProposalLink(
     return { error: error.message }
   }
 
+  // Log 'sent' event
+  logProposalEvent(proposalId, 'sent', {
+    recipient_name: recipientName,
+    recipient_email: recipientEmail,
+  }, sentBy)
+
   return {
     link: getViewerUrl(token),
     token,
@@ -53,13 +60,26 @@ export async function createProposalLink(
   }
 }
 
-export async function revokeProposalLink(linkId: string): Promise<{ error?: string }> {
+export async function revokeProposalLink(
+  linkId: string,
+  proposalId?: string,
+  recipientName?: string
+): Promise<{ error?: string }> {
   const { error } = await supabase
     .from('proposal_links')
     .update({ is_active: false })
     .eq('id', linkId)
 
   if (error) return { error: error.message }
+
+  // Log 'link_revoked' event
+  if (proposalId) {
+    logProposalEvent(proposalId, 'link_revoked', {
+      link_id: linkId,
+      recipient_name: recipientName || 'Unknown',
+    })
+  }
+
   return {}
 }
 

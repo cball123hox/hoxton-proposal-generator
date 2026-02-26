@@ -38,7 +38,7 @@ Deno.serve(async (req) => {
     // Look up the link
     const { data: link, error: linkErr } = await supabaseAdmin
       .from("proposal_links")
-      .select("id, proposal_id, allow_download, is_active, expires_at")
+      .select("id, proposal_id, allow_download, is_active, expires_at, recipient_name, recipient_email")
       .eq("token", token)
       .single()
 
@@ -93,6 +93,16 @@ Deno.serve(async (req) => {
       console.error("Signed URL error:", signErr)
       return jsonResponse({ error: "Failed to generate download URL" }, 500)
     }
+
+    // Log 'downloaded' proposal event
+    await supabaseAdmin.from("proposal_events").insert({
+      proposal_id: link.proposal_id,
+      event_type: "downloaded",
+      event_data: {
+        recipient_name: link.recipient_name,
+        recipient_email: link.recipient_email,
+      },
+    }).then(() => {}, () => {}) // fire-and-forget
 
     return jsonResponse({
       url: signedData.signedUrl,

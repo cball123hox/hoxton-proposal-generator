@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { ChevronLeft, Save, ChevronRight, Loader2 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
+import { logProposalEvent } from '../lib/proposal-events'
 import { useKeyboardShortcut } from '../hooks/useKeyboardShortcut'
 import { ProposalProgress } from '../components/proposal/ProposalProgress'
 import { StepClientDetails } from '../components/proposal/StepClientDetails'
@@ -142,6 +143,7 @@ export function NewProposalPage() {
       if (data) {
         id = data.id
         setProposalId(id)
+        logProposalEvent(data.id, 'created', { client_name: draft.clientName }, user?.id ?? undefined)
       }
     }
 
