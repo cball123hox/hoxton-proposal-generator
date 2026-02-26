@@ -460,9 +460,7 @@ export function ProposalDetailPage() {
               { key: 'slides', label: 'Slide Preview' },
               { key: 'activity', label: 'Activity' },
               { key: 'tracking', label: 'Tracking' },
-              ...(trackingLinks.length > 0 || proposal.status === 'sent'
-                ? [{ key: 'analytics' as Tab, label: 'Analytics' }]
-                : []),
+              { key: 'analytics', label: 'Analytics' },
             ] as { key: Tab; label: string }[]
           ).map((t) => (
             <button
