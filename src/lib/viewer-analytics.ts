@@ -17,31 +17,11 @@ function getDeviceType(): string {
   return 'desktop'
 }
 
-/** Best-effort IP fetch — returns null if it fails or takes too long */
-async function fetchViewerIp(): Promise<string | null> {
-  try {
-    const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), 3000)
-    const res = await fetch('https://api.ipify.org?format=json', {
-      signal: controller.signal,
-    })
-    clearTimeout(timeout)
-    if (!res.ok) return null
-    const data = await res.json()
-    return data.ip || null
-  } catch {
-    return null
-  }
-}
-
 export async function initViewSession(linkId: string): Promise<string | null> {
   try {
     console.log('[Analytics] initViewSession called with linkId:', linkId)
     const userAgent = navigator.userAgent
     const sessionId = getSessionId()
-
-    // Fire IP fetch in background — don't block session creation
-    const ipPromise = fetchViewerIp()
 
     // Check if this session has already viewed this link (unique visitor detection)
     let isUnique = true
@@ -76,18 +56,6 @@ export async function initViewSession(linkId: string): Promise<string | null> {
     }
 
     console.log('[Analytics] initViewSession success, viewId:', data.id)
-
-    // Update IP in background once it resolves (non-blocking)
-    ipPromise.then((ip) => {
-      if (ip && data?.id) {
-        supabase
-          .from('link_views')
-          .update({ viewer_ip: ip })
-          .eq('id', data.id)
-          .then(() => {})
-      }
-    })
-
     return data.id
   } catch (err) {
     console.error('[Analytics] initViewSession exception:', err)
