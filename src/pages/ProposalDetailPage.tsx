@@ -32,6 +32,7 @@ import { getSlideUrl } from '../lib/storage'
 import { getProposalLinks, getViewerUrl } from '../lib/tracking'
 import { SendProposalModal } from '../components/proposal/SendProposalModal'
 import { ProposalAnalyticsTab } from '../components/proposal/ProposalAnalyticsTab'
+import { useToast } from '../components/ui/Toast'
 import type { Proposal, ProposalStatus, ProposalLink } from '../types'
 
 type Tab = 'overview' | 'slides' | 'activity' | 'tracking' | 'analytics'
@@ -178,6 +179,7 @@ export function ProposalDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const { user, profile } = useAuth()
+  const { addToast } = useToast()
 
   const [proposal, setProposal] = useState<Proposal | null>(null)
   const [events, setEvents] = useState<ProposalEvent[]>([])
@@ -937,9 +939,22 @@ export function ProposalDetailPage() {
                         {link.is_active && !isExpired && (
                           <button
                             onClick={async () => {
+                              const url = getViewerUrl(link.token)
                               try {
-                                await navigator.clipboard.writeText(getViewerUrl(link.token))
-                              } catch { /* noop */ }
+                                await navigator.clipboard.writeText(url)
+                                addToast('success', 'Link copied to clipboard')
+                              } catch {
+                                // Fallback for non-HTTPS contexts
+                                const ta = document.createElement('textarea')
+                                ta.value = url
+                                ta.style.position = 'fixed'
+                                ta.style.opacity = '0'
+                                document.body.appendChild(ta)
+                                ta.select()
+                                document.execCommand('copy')
+                                document.body.removeChild(ta)
+                                addToast('success', 'Link copied to clipboard')
+                              }
                             }}
                             className="rounded p-1.5 text-hoxton-slate hover:bg-hoxton-grey/50 hover:text-hoxton-deep"
                             title="Copy link"
