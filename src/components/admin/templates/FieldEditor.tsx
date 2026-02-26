@@ -891,7 +891,7 @@ function FieldProperties({
           <select
             value={field.autoFill || ''}
             onChange={(e) => {
-              const val = e.target.value || undefined
+              const val = (e.target.value || undefined) as EditableFieldDef['autoFill']
               const updates: Partial<EditableFieldDef> = { autoFill: val }
               if (val && TEXTAREA_AUTO_FILLS.has(val)) {
                 updates.type = 'textarea'
