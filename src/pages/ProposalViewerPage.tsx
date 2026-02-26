@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { useParams } from 'react-router-dom'
-import { ChevronLeft, ChevronRight, Download, Loader2 } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Download, Loader2, ShieldCheck, Mail } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { getSlideUrl } from '../lib/storage'
 import { REGIONS, PRODUCT_MODULES } from '../lib/constants'
@@ -16,6 +16,8 @@ import type { Proposal, EditableFieldDef } from '../types'
 
 /* ── Types ── */
 
+type ViewerState = 'loading' | 'verify' | 'code_entry' | 'verified' | 'viewing' | 'error'
+
 interface LinkData {
   id: string
   proposal_id: string
@@ -23,6 +25,7 @@ interface LinkData {
   expires_at: string | null
   allow_download: boolean
   recipient_name: string
+  recipient_email: string
 }
 
 interface ViewerSlide {
@@ -32,7 +35,11 @@ interface ViewerSlide {
   editableFields?: EditableFieldDef[]
 }
 
-/* ── Font weight map (matches StepPreviewGenerate) ── */
+/* ── Constants ── */
+
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string
+const EDGE_FN_URL = `${SUPABASE_URL}/functions/v1/verify-proposal-access`
+const SESSION_KEY_PREFIX = 'hxt_otp_session_'
 
 const FONT_WEIGHT_MAP: Record<string, string> = {
   normal: '400',
@@ -41,7 +48,47 @@ const FONT_WEIGHT_MAP: Record<string, string> = {
   bold: '700',
 }
 
-/* ── SlideFieldOverlays (reused pattern from StepPreviewGenerate) ── */
+/* ── Helpers ── */
+
+function maskEmail(email: string): string {
+  const [local, domain] = email.split('@')
+  if (!local || !domain) return '****@****'
+  const masked = local[0] + '****'
+  return `${masked}@${domain}`
+}
+
+function getSessionToken(token: string): string | null {
+  try {
+    const raw = sessionStorage.getItem(SESSION_KEY_PREFIX + token)
+    if (!raw) return null
+    const { session_token, expires_at } = JSON.parse(raw)
+    if (new Date(expires_at) < new Date()) {
+      sessionStorage.removeItem(SESSION_KEY_PREFIX + token)
+      return null
+    }
+    return session_token
+  } catch {
+    return null
+  }
+}
+
+function saveSessionToken(token: string, sessionToken: string, expiresAt: string) {
+  sessionStorage.setItem(
+    SESSION_KEY_PREFIX + token,
+    JSON.stringify({ session_token: sessionToken, expires_at: expiresAt })
+  )
+}
+
+async function callEdgeFunction(body: Record<string, string>) {
+  const res = await fetch(EDGE_FN_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  return res.json()
+}
+
+/* ── SlideFieldOverlays ── */
 
 function SlideFieldOverlays({
   fields,
@@ -173,6 +220,83 @@ function SlideImage({
   )
 }
 
+/* ── OTP Digit Input ── */
+
+function OtpInput({
+  value,
+  onChange,
+  disabled,
+  shake,
+}: {
+  value: string
+  onChange: (code: string) => void
+  disabled: boolean
+  shake: boolean
+}) {
+  const inputRefs = useRef<(HTMLInputElement | null)[]>([])
+  const digits = value.padEnd(6, '').split('').slice(0, 6)
+
+  function handleKeyDown(i: number, e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === 'Backspace') {
+      e.preventDefault()
+      if (digits[i] && digits[i] !== '') {
+        const next = [...digits]
+        next[i] = ''
+        onChange(next.join(''))
+      } else if (i > 0) {
+        const next = [...digits]
+        next[i - 1] = ''
+        onChange(next.join(''))
+        inputRefs.current[i - 1]?.focus()
+      }
+    }
+  }
+
+  function handleInput(i: number, e: React.FormEvent<HTMLInputElement>) {
+    const char = (e.nativeEvent as InputEvent).data
+    if (!char || !/^\d$/.test(char)) return
+    const next = [...digits]
+    next[i] = char
+    const newCode = next.join('')
+    onChange(newCode)
+    if (i < 5) inputRefs.current[i + 1]?.focus()
+  }
+
+  function handlePaste(e: React.ClipboardEvent) {
+    e.preventDefault()
+    const pasted = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6)
+    if (pasted.length > 0) {
+      onChange(pasted.padEnd(6, ''))
+      const focusIdx = Math.min(pasted.length, 5)
+      inputRefs.current[focusIdx]?.focus()
+    }
+  }
+
+  return (
+    <div
+      className={`flex justify-center gap-2 sm:gap-3 ${shake ? 'animate-[shake_0.4s_ease-in-out]' : ''}`}
+    >
+      {digits.map((d, i) => (
+        <input
+          key={i}
+          ref={(el) => { inputRefs.current[i] = el }}
+          type="text"
+          inputMode="numeric"
+          maxLength={1}
+          disabled={disabled}
+          value={d === ' ' ? '' : d}
+          onKeyDown={(e) => handleKeyDown(i, e)}
+          onInput={(e) => handleInput(i, e)}
+          onPaste={handlePaste}
+          onFocus={(e) => e.target.select()}
+          className="h-14 w-11 rounded-xl border-2 border-hoxton-grey/50 bg-white text-center text-2xl font-heading font-semibold text-hoxton-deep outline-none transition-all focus:border-hoxton-turquoise focus:ring-2 focus:ring-hoxton-turquoise/30 disabled:opacity-50 sm:h-16 sm:w-14 sm:text-3xl"
+          autoFocus={i === 0}
+        />
+      ))}
+    </div>
+  )
+}
+
 /* ── Assemble slides from proposal data ── */
 
 async function assembleSlides(
@@ -265,7 +389,6 @@ async function assembleSlides(
           })
         }
       } else {
-        // Fallback: use region closing_slides_count
         const { data: dbRegion } = await supabase
           .from('regions')
           .select('closing_slides_count')
@@ -286,7 +409,7 @@ async function assembleSlides(
       }
     }
   } catch {
-    // Closing slides unavailable — continue without them
+    // Closing slides unavailable
   }
 
   return items
@@ -299,7 +422,6 @@ async function fetchFieldDefs(
 ): Promise<Record<string, EditableFieldDef[]>> {
   const fieldMap: Record<string, EditableFieldDef[]> = {}
 
-  // Intro slide fields
   try {
     const { data: introPack } = await supabase
       .from('intro_packs')
@@ -329,7 +451,6 @@ async function fetchFieldDefs(
     // Non-critical
   }
 
-  // Product slide fields
   const selectedModules = PRODUCT_MODULES.filter((p) =>
     proposal.selected_products.includes(p.id)
   )
@@ -359,15 +480,29 @@ async function fetchFieldDefs(
   return fieldMap
 }
 
-/* ── Main component ── */
+/* ═══════════════════════════════════════════════════════
+   Main component
+   ═══════════════════════════════════════════════════════ */
 
 export function ProposalViewerPage() {
   const { token } = useParams<{ token: string }>()
 
-  // State
-  const [loading, setLoading] = useState(true)
+  // ── Verification state ──
+  const [viewerState, setViewerState] = useState<ViewerState>('loading')
   const [error, setError] = useState<string | null>(null)
   const [link, setLink] = useState<LinkData | null>(null)
+
+  // OTP state
+  const [otpCode, setOtpCode] = useState('')
+  const [otpError, setOtpError] = useState<string | null>(null)
+  const [otpShake, setOtpShake] = useState(false)
+  const [otpSending, setOtpSending] = useState(false)
+  const [otpVerifying, setOtpVerifying] = useState(false)
+  const [resendCooldown, setResendCooldown] = useState(0)
+  const [codeExpiresAt, setCodeExpiresAt] = useState<Date | null>(null)
+  const [expiryDisplay, setExpiryDisplay] = useState('')
+
+  // ── Slide viewer state ──
   const [proposal, setProposal] = useState<Proposal | null>(null)
   const [slides, setSlides] = useState<ViewerSlide[]>([])
   const [currentIndex, setCurrentIndex] = useState(0)
@@ -383,25 +518,24 @@ export function ProposalViewerPage() {
   // Swipe tracking
   const pointerStartRef = useRef<{ x: number; y: number } | null>(null)
 
-  /* ── Load data ── */
+  /* ── Step 1: Validate link + check existing session ── */
   useEffect(() => {
     if (!token) {
       setError('No token provided')
-      setLoading(false)
+      setViewerState('error')
       return
     }
 
-    async function load() {
-      // 1. Validate link
+    async function validateLink() {
       const { data: linkData, error: linkError } = await supabase
         .from('proposal_links')
-        .select('id, proposal_id, is_active, expires_at, allow_download, recipient_name')
+        .select('id, proposal_id, is_active, expires_at, allow_download, recipient_name, recipient_email')
         .eq('token', token!)
         .single()
 
       if (linkError || !linkData) {
         setError('This link is no longer available')
-        setLoading(false)
+        setViewerState('error')
         return
       }
 
@@ -409,47 +543,166 @@ export function ProposalViewerPage() {
 
       if (!ld.is_active) {
         setError('This link has been revoked')
-        setLoading(false)
+        setViewerState('error')
         return
       }
 
       if (ld.expires_at && new Date(ld.expires_at) < new Date()) {
         setError('This link has expired')
-        setLoading(false)
+        setViewerState('error')
         return
       }
 
       setLink(ld)
 
-      // 2. Fetch proposal
+      // Check for existing valid session
+      const existingSession = getSessionToken(token!)
+      if (existingSession) {
+        try {
+          const result = await callEdgeFunction({
+            action: 'validate_session',
+            token: token!,
+            session_token: existingSession,
+          })
+          if (result.valid) {
+            setViewerState('verified')
+            return
+          }
+        } catch {
+          // Session invalid, proceed to verification
+        }
+        sessionStorage.removeItem(SESSION_KEY_PREFIX + token!)
+      }
+
+      setViewerState('verify')
+    }
+
+    validateLink()
+  }, [token])
+
+  /* ── Step 2: Load slides once verified ── */
+  useEffect(() => {
+    if (viewerState !== 'verified' || !link || !token) return
+
+    async function loadProposal() {
       const { data: proposalData, error: proposalError } = await supabase
         .from('proposals')
         .select('*')
-        .eq('id', ld.proposal_id)
+        .eq('id', link!.proposal_id)
         .single()
 
       if (proposalError || !proposalData) {
         setError('This link is no longer available')
-        setLoading(false)
+        setViewerState('error')
         return
       }
 
       const prop = proposalData as Proposal
       setProposal(prop)
 
-      // 3. Fetch field definitions + assemble slides
       const fieldDefs = await fetchFieldDefs(prop)
       const assembled = await assembleSlides(prop, fieldDefs)
       setSlides(assembled)
-      setLoading(false)
+      setViewerState('viewing')
 
-      // 4. Init analytics
-      const vid = await initViewSession(ld.id)
+      // Init analytics
+      const vid = await initViewSession(link!.id)
       viewIdRef.current = vid
     }
 
-    load()
-  }, [token])
+    loadProposal()
+  }, [viewerState, link, token])
+
+  /* ── OTP: Send code ── */
+  const handleSendOtp = useCallback(async () => {
+    if (!token || otpSending) return
+    setOtpSending(true)
+    setOtpError(null)
+
+    try {
+      const result = await callEdgeFunction({ action: 'send_otp', token })
+
+      if (result.error) {
+        setOtpError(result.error)
+        setOtpSending(false)
+        return
+      }
+
+      const expiresIn = result.expires_in || 600
+      setCodeExpiresAt(new Date(Date.now() + expiresIn * 1000))
+      setResendCooldown(30)
+      setOtpCode('')
+      setOtpError(null)
+      setViewerState('code_entry')
+    } catch {
+      setOtpError('Failed to send code. Please try again.')
+    }
+    setOtpSending(false)
+  }, [token, otpSending])
+
+  /* ── OTP: Verify code ── */
+  const handleVerifyOtp = useCallback(async (codeToVerify: string) => {
+    if (!token || otpVerifying || codeToVerify.replace(/\s/g, '').length < 6) return
+    setOtpVerifying(true)
+    setOtpError(null)
+
+    try {
+      const cleanCode = codeToVerify.replace(/\s/g, '')
+      const result = await callEdgeFunction({
+        action: 'verify_otp',
+        token,
+        code: cleanCode,
+      })
+
+      if (result.verified) {
+        saveSessionToken(token, result.session_token, result.expires_at)
+        setViewerState('verified')
+      } else {
+        setOtpError(result.error || 'Invalid code.')
+        setOtpShake(true)
+        setTimeout(() => setOtpShake(false), 500)
+        setOtpCode('')
+      }
+    } catch {
+      setOtpError('Verification failed. Please try again.')
+    }
+    setOtpVerifying(false)
+  }, [token, otpVerifying])
+
+  /* ── Auto-verify when 6 digits entered ── */
+  useEffect(() => {
+    const clean = otpCode.replace(/\s/g, '')
+    if (clean.length === 6 && /^\d{6}$/.test(clean) && viewerState === 'code_entry') {
+      handleVerifyOtp(clean)
+    }
+  }, [otpCode, viewerState, handleVerifyOtp])
+
+  /* ── Resend cooldown timer ── */
+  useEffect(() => {
+    if (resendCooldown <= 0) return
+    const timer = setTimeout(() => setResendCooldown((c) => c - 1), 1000)
+    return () => clearTimeout(timer)
+  }, [resendCooldown])
+
+  /* ── Code expiry countdown ── */
+  useEffect(() => {
+    if (!codeExpiresAt || viewerState !== 'code_entry') return
+
+    function updateDisplay() {
+      const remaining = Math.max(0, Math.floor((codeExpiresAt!.getTime() - Date.now()) / 1000))
+      if (remaining <= 0) {
+        setExpiryDisplay('Code expired')
+        return
+      }
+      const m = Math.floor(remaining / 60)
+      const s = remaining % 60
+      setExpiryDisplay(`Code expires in ${m}:${String(s).padStart(2, '0')}`)
+    }
+
+    updateDisplay()
+    const timer = setInterval(updateDisplay, 1000)
+    return () => clearInterval(timer)
+  }, [codeExpiresAt, viewerState])
 
   /* ── Slide transition helper ── */
   const goToSlide = useCallback(
@@ -467,19 +720,17 @@ export function ProposalViewerPage() {
 
   /* ── Analytics: track slide enters/exits ── */
   useEffect(() => {
-    if (!slides.length || !link) return
+    if (!slides.length || !link || viewerState !== 'viewing') return
 
     const slide = slides[currentIndex]
     if (!slide) return
 
-    // Exit previous slide
     if (currentAnalyticRef.current) {
       trackSlideExit(currentAnalyticRef.current.id, currentAnalyticRef.current.enteredAt)
       clearPendingExit()
       currentAnalyticRef.current = null
     }
 
-    // Enter new slide
     const enteredAt = new Date()
     if (viewIdRef.current) {
       trackSlideEnter(viewIdRef.current, link.id, currentIndex, slide.label).then(
@@ -491,7 +742,7 @@ export function ProposalViewerPage() {
         }
       )
     }
-  }, [currentIndex, slides.length, link])
+  }, [currentIndex, slides.length, link, viewerState])
 
   /* ── Flush analytics on unload ── */
   useEffect(() => {
@@ -502,15 +753,16 @@ export function ProposalViewerPage() {
     }
   }, [])
 
-  /* ── Keyboard navigation ── */
+  /* ── Keyboard navigation (only when viewing) ── */
   useEffect(() => {
+    if (viewerState !== 'viewing') return
     function handleKey(e: KeyboardEvent) {
       if (e.key === 'ArrowLeft') goToSlide(currentIndex - 1)
       if (e.key === 'ArrowRight') goToSlide(currentIndex + 1)
     }
     window.addEventListener('keydown', handleKey)
     return () => window.removeEventListener('keydown', handleKey)
-  }, [goToSlide, currentIndex])
+  }, [goToSlide, currentIndex, viewerState])
 
   /* ── Auto-scroll thumbnail strip ── */
   useEffect(() => {
@@ -533,7 +785,6 @@ export function ProposalViewerPage() {
       const dy = e.clientY - pointerStartRef.current.y
       pointerStartRef.current = null
 
-      // Only trigger on horizontal swipes > 50px with more horizontal than vertical movement
       if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)) {
         if (dx < 0) goToSlide(currentIndex + 1)
         else goToSlide(currentIndex - 1)
@@ -563,22 +814,22 @@ export function ProposalViewerPage() {
     return proposal.editable_fields_data[currentSlide.id] || {}
   }, [currentSlide, proposal?.editable_fields_data])
 
-  /* ── Loading state ── */
-  if (loading) {
+  /* ═══════════════════════════════════
+     RENDER: Loading
+     ═══════════════════════════════════ */
+  if (viewerState === 'loading') {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center bg-hoxton-deep">
-        <img
-          src="/hoxton-logo-white.svg"
-          alt="Hoxton"
-          className="mb-6 h-10 animate-pulse"
-        />
+        <img src="/hoxton-logo-white.svg" alt="Hoxton" className="mb-6 h-10 animate-pulse" />
         <Loader2 className="h-6 w-6 animate-spin text-hoxton-turquoise" />
       </div>
     )
   }
 
-  /* ── Error state ── */
-  if (error || !link || !proposal || slides.length === 0) {
+  /* ═══════════════════════════════════
+     RENDER: Error
+     ═══════════════════════════════════ */
+  if (viewerState === 'error') {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center bg-hoxton-deep px-4">
         <img src="/hoxton-logo-white.svg" alt="Hoxton" className="mb-8 h-10" />
@@ -594,7 +845,158 @@ export function ProposalViewerPage() {
     )
   }
 
-  /* ── Main viewer ── */
+  /* ═══════════════════════════════════
+     RENDER: Verify (send code screen)
+     ═══════════════════════════════════ */
+  if (viewerState === 'verify' && link) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-hoxton-light px-4">
+        <div className="w-full max-w-md">
+          <div className="mb-8 text-center">
+            <img src="/hoxton-logo.svg" alt="Hoxton Wealth" className="mx-auto h-9" />
+          </div>
+
+          <div className="rounded-2xl bg-white p-8 shadow-sm ring-1 ring-hoxton-grey/30 sm:p-10">
+            <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-full bg-hoxton-turquoise/10">
+              <ShieldCheck className="h-7 w-7 text-hoxton-turquoise" />
+            </div>
+
+            <h1 className="text-center text-xl font-heading font-semibold text-hoxton-deep">
+              Your adviser has shared a proposal with you
+            </h1>
+            <p className="mt-3 text-center text-sm font-body leading-relaxed text-hoxton-slate">
+              To protect your information, please verify your email address.
+            </p>
+
+            <div className="mt-6 rounded-xl bg-hoxton-light/60 px-4 py-3 text-center">
+              <p className="text-sm font-body text-hoxton-slate">
+                We&apos;ll send a code to{' '}
+                <span className="font-medium text-hoxton-deep">{maskEmail(link.recipient_email)}</span>
+              </p>
+            </div>
+
+            {otpError && (
+              <div className="mt-4 rounded-lg bg-red-50 px-4 py-2.5 text-center text-sm font-body text-red-600">
+                {otpError}
+              </div>
+            )}
+
+            <button
+              onClick={handleSendOtp}
+              disabled={otpSending}
+              className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-hoxton-turquoise px-6 py-3.5 text-sm font-heading font-semibold text-white transition-colors hover:bg-hoxton-turquoise/90 disabled:opacity-60"
+            >
+              {otpSending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Mail className="h-4 w-4" />
+              )}
+              {otpSending ? 'Sending...' : 'Send Verification Code'}
+            </button>
+          </div>
+
+          <p className="mt-6 text-center text-xs font-body text-hoxton-slate/70">
+            Secured by Hoxton Wealth
+          </p>
+        </div>
+      </div>
+    )
+  }
+
+  /* ═══════════════════════════════════
+     RENDER: Code entry
+     ═══════════════════════════════════ */
+  if (viewerState === 'code_entry' && link) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-hoxton-light px-4">
+        <div className="w-full max-w-md">
+          <div className="mb-8 text-center">
+            <img src="/hoxton-logo.svg" alt="Hoxton Wealth" className="mx-auto h-9" />
+          </div>
+
+          <div className="rounded-2xl bg-white p-8 shadow-sm ring-1 ring-hoxton-grey/30 sm:p-10">
+            <h1 className="text-center text-xl font-heading font-semibold text-hoxton-deep">
+              Enter verification code
+            </h1>
+            <p className="mt-2 text-center text-sm font-body text-hoxton-slate">
+              We sent a 6-digit code to{' '}
+              <span className="font-medium text-hoxton-deep">{maskEmail(link.recipient_email)}</span>
+            </p>
+
+            <div className="mt-8">
+              <OtpInput
+                value={otpCode}
+                onChange={setOtpCode}
+                disabled={otpVerifying}
+                shake={otpShake}
+              />
+            </div>
+
+            {otpVerifying && (
+              <div className="mt-5 flex items-center justify-center gap-2 text-sm font-body text-hoxton-slate">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Verifying...
+              </div>
+            )}
+
+            {otpError && !otpVerifying && (
+              <div className="mt-5 rounded-lg bg-red-50 px-4 py-2.5 text-center text-sm font-body text-red-600">
+                {otpError}
+              </div>
+            )}
+
+            <div className="mt-6 flex items-center justify-between text-xs font-body">
+              <span className="text-hoxton-slate/70">{expiryDisplay}</span>
+              <button
+                onClick={handleSendOtp}
+                disabled={resendCooldown > 0 || otpSending}
+                className="font-medium text-hoxton-turquoise transition-colors hover:text-hoxton-turquoise/80 disabled:text-hoxton-slate/40"
+              >
+                {resendCooldown > 0 ? `Resend in ${resendCooldown}s` : 'Resend Code'}
+              </button>
+            </div>
+          </div>
+
+          <p className="mt-6 text-center text-xs font-body text-hoxton-slate/70">
+            Secured by Hoxton Wealth
+          </p>
+        </div>
+      </div>
+    )
+  }
+
+  /* ═══════════════════════════════════
+     RENDER: Verified (loading slides)
+     ═══════════════════════════════════ */
+  if (viewerState === 'verified') {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center bg-hoxton-deep">
+        <img src="/hoxton-logo-white.svg" alt="Hoxton" className="mb-6 h-10 animate-pulse" />
+        <Loader2 className="h-6 w-6 animate-spin text-hoxton-turquoise" />
+        <p className="mt-4 text-sm font-body text-white/60">Loading your proposal...</p>
+      </div>
+    )
+  }
+
+  /* ═══════════════════════════════════
+     RENDER: Viewing (slides)
+     ═══════════════════════════════════ */
+  if (!link || !proposal || slides.length === 0) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center bg-hoxton-deep px-4">
+        <img src="/hoxton-logo-white.svg" alt="Hoxton" className="mb-8 h-10" />
+        <div className="max-w-sm text-center">
+          <h1 className="text-xl font-heading font-semibold text-white">
+            This link is no longer available
+          </h1>
+          <p className="mt-3 text-sm font-body text-hoxton-grey">
+            Please contact your adviser for a new link.
+          </p>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="flex h-screen flex-col bg-hoxton-deep select-none">
       {/* ── Top bar ── */}
@@ -629,7 +1031,6 @@ export function ProposalViewerPage() {
         onPointerDown={handlePointerDown}
         onPointerUp={handlePointerUp}
       >
-        {/* Prev arrow */}
         <button
           onClick={() => goToSlide(currentIndex - 1)}
           disabled={currentIndex === 0}
@@ -639,7 +1040,6 @@ export function ProposalViewerPage() {
           <ChevronLeft className="h-5 w-5 sm:h-6 sm:w-6" />
         </button>
 
-        {/* Slide container (16:9) */}
         <div
           className={`relative aspect-video w-full max-w-5xl overflow-hidden rounded-lg bg-black/20 shadow-2xl transition-opacity duration-150 ${
             transitioning ? 'opacity-0' : 'opacity-100'
@@ -664,7 +1064,6 @@ export function ProposalViewerPage() {
           )}
         </div>
 
-        {/* Next arrow */}
         <button
           onClick={() => goToSlide(currentIndex + 1)}
           disabled={currentIndex === slides.length - 1}

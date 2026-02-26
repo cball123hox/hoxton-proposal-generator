@@ -258,3 +258,15 @@ export interface SlideAnalytic {
   time_exited: string | null
   duration_seconds: number | null
 }
+
+export interface LinkOtp {
+  id: string
+  link_id: string
+  code: string
+  expires_at: string
+  is_used: boolean
+  attempts: number
+  session_token: string | null
+  session_expires_at: string | null
+  created_at: string
+}
