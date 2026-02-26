@@ -214,7 +214,7 @@ export async function getViewerSessions(
     .order('time_entered', { ascending: true })
 
   // Group slide data by view_id
-  const slidesByView: Record<string, typeof slideData> = {}
+  const slidesByView: Record<string, NonNullable<typeof slideData>> = {}
   if (slideData) {
     for (const s of slideData) {
       if (!slidesByView[s.view_id]) slidesByView[s.view_id] = []
