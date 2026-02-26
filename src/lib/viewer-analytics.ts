@@ -36,6 +36,7 @@ async function fetchViewerIp(): Promise<string | null> {
 
 export async function initViewSession(linkId: string): Promise<string | null> {
   try {
+    console.log('[Analytics] initViewSession called with linkId:', linkId)
     const userAgent = navigator.userAgent
     const sessionId = getSessionId()
 
@@ -69,7 +70,12 @@ export async function initViewSession(linkId: string): Promise<string | null> {
       .select('id')
       .single()
 
-    if (error) return null
+    if (error) {
+      console.error('[Analytics] initViewSession INSERT error:', error)
+      return null
+    }
+
+    console.log('[Analytics] initViewSession success, viewId:', data.id)
 
     // Update IP in background once it resolves (non-blocking)
     ipPromise.then((ip) => {
@@ -83,7 +89,8 @@ export async function initViewSession(linkId: string): Promise<string | null> {
     })
 
     return data.id
-  } catch {
+  } catch (err) {
+    console.error('[Analytics] initViewSession exception:', err)
     return null
   }
 }
@@ -95,6 +102,7 @@ export async function trackSlideEnter(
   slideTitle: string
 ): Promise<string | null> {
   try {
+    console.log('[Analytics] trackSlideEnter:', { viewId, linkId, slideIndex, slideTitle })
     const { data, error } = await supabase
       .from('slide_analytics')
       .insert({
@@ -102,13 +110,19 @@ export async function trackSlideEnter(
         link_id: linkId,
         slide_index: slideIndex,
         slide_title: slideTitle,
+        time_entered: new Date().toISOString(),
       })
       .select('id')
       .single()
 
-    if (error) return null
+    if (error) {
+      console.error('[Analytics] trackSlideEnter INSERT error:', error)
+      return null
+    }
+    console.log('[Analytics] trackSlideEnter success, analyticId:', data.id)
     return data.id
-  } catch {
+  } catch (err) {
+    console.error('[Analytics] trackSlideEnter exception:', err)
     return null
   }
 }
@@ -121,15 +135,20 @@ export async function trackSlideExit(
     const now = new Date()
     const durationSeconds = (now.getTime() - timeEntered.getTime()) / 1000
 
-    await supabase
+    console.log('[Analytics] trackSlideExit:', { analyticId, durationSeconds: Math.round(durationSeconds * 100) / 100 })
+    const { error } = await supabase
       .from('slide_analytics')
       .update({
         time_exited: now.toISOString(),
         duration_seconds: Math.round(durationSeconds * 100) / 100,
       })
       .eq('id', analyticId)
-  } catch {
-    // fire-and-forget
+
+    if (error) {
+      console.error('[Analytics] trackSlideExit UPDATE error:', error)
+    }
+  } catch (err) {
+    console.error('[Analytics] trackSlideExit exception:', err)
   }
 }
 

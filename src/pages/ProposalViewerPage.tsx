@@ -602,12 +602,15 @@ export function ProposalViewerPage() {
 
       const fieldDefs = await fetchFieldDefs(prop)
       const assembled = await assembleSlides(prop, fieldDefs)
+
+      // Init analytics BEFORE transitioning to viewing state
+      // so viewIdRef is set when slide tracking effect fires
+      const vid = await initViewSession(link!.id)
+      console.log('[Viewer] initViewSession returned viewId:', vid)
+      viewIdRef.current = vid
+
       setSlides(assembled)
       setViewerState('viewing')
-
-      // Init analytics
-      const vid = await initViewSession(link!.id)
-      viewIdRef.current = vid
     }
 
     loadProposal()
@@ -725,6 +728,8 @@ export function ProposalViewerPage() {
     const slide = slides[currentIndex]
     if (!slide) return
 
+    console.log('[Viewer] Slide tracking effect fired for slide', currentIndex, '| viewIdRef:', viewIdRef.current)
+
     if (currentAnalyticRef.current) {
       trackSlideExit(currentAnalyticRef.current.id, currentAnalyticRef.current.enteredAt)
       clearPendingExit()
@@ -738,9 +743,13 @@ export function ProposalViewerPage() {
           if (analyticId) {
             currentAnalyticRef.current = { id: analyticId, enteredAt }
             setPendingExit(analyticId, enteredAt)
+          } else {
+            console.warn('[Viewer] trackSlideEnter returned null analyticId')
           }
         }
       )
+    } else {
+      console.warn('[Viewer] viewIdRef.current is null — cannot track slide')
     }
   }, [currentIndex, slides.length, link, viewerState])
 
