@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
-import { CloudUpload, X, Upload, Loader2 } from 'lucide-react'
+import { CloudUpload, X, Upload, Loader2, RefreshCw } from 'lucide-react'
 import { BulkUploadProgress } from './BulkUploadProgress'
 import type { UploadProgress } from '../../../lib/upload'
 
@@ -13,7 +13,7 @@ interface SlideDropZoneProps {
   existingSlideCount: number
   uploading: boolean
   uploadProgress: UploadProgress | null
-  onUpload: (files: File[]) => void
+  onUpload: (files: File[], replaceAll: boolean) => void
   disabled?: boolean
 }
 
@@ -27,6 +27,7 @@ export function SlideDropZone({
   const [dragOver, setDragOver] = useState(false)
   const [stagedFiles, setStagedFiles] = useState<FilePreview[]>([])
   const [sizeError, setSizeError] = useState('')
+  const [replaceAll, setReplaceAll] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const dragCounter = useRef(0)
 
@@ -127,11 +128,12 @@ export function SlideDropZone({
 
   function confirmUpload() {
     const files = stagedFiles.map((f) => f.file)
-    onUpload(files)
+    onUpload(files, replaceAll)
     setStagedFiles((prev) => {
       prev.forEach((f) => URL.revokeObjectURL(f.url))
       return []
     })
+    setReplaceAll(false)
   }
 
   // While uploading, only show progress
@@ -161,8 +163,34 @@ export function SlideDropZone({
           </div>
 
           {existingSlideCount > 0 && (
-            <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-body text-amber-700">
-              This will replace all {existingSlideCount} existing slides.
+            <div className="mb-3 space-y-2">
+              <div className={`rounded-lg border px-3 py-2 text-xs font-body ${
+                replaceAll
+                  ? 'border-amber-200 bg-amber-50 text-amber-700'
+                  : 'border-emerald-200 bg-emerald-50 text-emerald-700'
+              }`}>
+                {replaceAll
+                  ? `This will replace all ${existingSlideCount} existing slides.`
+                  : `Adding ${stagedFiles.length} new slide${stagedFiles.length !== 1 ? 's' : ''} after the ${existingSlideCount} existing slides.`
+                }
+              </div>
+              <label className="flex cursor-pointer items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setReplaceAll(!replaceAll)}
+                  className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${
+                    replaceAll ? 'bg-amber-500' : 'bg-gray-200'
+                  }`}
+                >
+                  <span className={`inline-block h-3.5 w-3.5 rounded-full bg-white shadow-sm transition-transform ${
+                    replaceAll ? 'translate-x-[18px]' : 'translate-x-[3px]'
+                  }`} />
+                </button>
+                <span className="flex items-center gap-1.5 text-xs font-heading font-medium text-hoxton-slate">
+                  <RefreshCw className="h-3 w-3" />
+                  Replace existing slides
+                </span>
+              </label>
             </div>
           )}
 

@@ -191,13 +191,15 @@ export function ManageClosingPackModal({ region, userId, onClose, onRefresh }: M
     }
   }
 
-  async function handleBulkUpload(files: File[]) {
+  async function handleBulkUpload(files: File[], replaceAll: boolean) {
     if (files.length === 0 || !closingPack) return
 
     setUploading(true)
     setUploadProgress({ total: files.length, completed: 0, currentFile: '' })
 
-    const results = await uploadSlides(files, storagePath, 1, setUploadProgress)
+    const existingCount = slides.length
+    const startNumber = replaceAll ? 1 : existingCount + 1
+    const results = await uploadSlides(files, storagePath, startNumber, setUploadProgress)
 
     const errors = results.filter((r) => r.error)
     if (errors.length > 0) {
@@ -206,8 +208,10 @@ export function ManageClosingPackModal({ region, userId, onClose, onRefresh }: M
 
     const successfulUploads = results.filter((r) => !r.error)
 
-    // Delete existing slide records for this pack
-    await supabase.from('closing_slides').delete().eq('closing_pack_id', closingPack.id)
+    if (replaceAll) {
+      // Delete existing slide records for this pack
+      await supabase.from('closing_slides').delete().eq('closing_pack_id', closingPack.id)
+    }
 
     // Create new slide records
     if (successfulUploads.length > 0) {
@@ -222,14 +226,16 @@ export function ManageClosingPackModal({ region, userId, onClose, onRefresh }: M
     }
 
     // Update slide count on regions table
+    const newTotal = replaceAll ? successfulUploads.length : existingCount + successfulUploads.length
     await supabase
       .from('regions')
-      .update({ closing_slides_count: successfulUploads.length })
+      .update({ closing_slides_count: newTotal })
       .eq('id', region.id)
 
     await logAudit('slide_bulk_uploaded', 'closing_pack', region.id, {
       slides_uploaded: successfulUploads.length,
       errors: errors.length,
+      mode: replaceAll ? 'replace' : 'append',
     }, userId)
 
     setUploading(false)

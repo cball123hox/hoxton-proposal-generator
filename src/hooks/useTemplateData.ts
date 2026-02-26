@@ -31,19 +31,53 @@ export function useTemplateData(): TemplateData {
       setError(err.message)
       return
     }
-    setRegions(data as DbRegion[])
+
+    // Fetch actual slide counts from intro_packs/closing_packs to override denormalized counts
+    const [{ data: introPacks }, { data: closingPacks }] = await Promise.all([
+      supabase.from('intro_packs').select('region_id, intro_slides(id)').eq('is_active', true),
+      supabase.from('closing_packs').select('region_id, closing_slides(id)').eq('is_active', true),
+    ])
+
+    const introCountMap = new Map<string, number>()
+    for (const pack of (introPacks ?? []) as { region_id: string; intro_slides: unknown }[]) {
+      const slides = pack.intro_slides as unknown[]
+      introCountMap.set(pack.region_id, Array.isArray(slides) ? slides.length : 0)
+    }
+
+    const closingCountMap = new Map<string, number>()
+    for (const pack of (closingPacks ?? []) as { region_id: string; closing_slides: unknown }[]) {
+      const slides = pack.closing_slides as unknown[]
+      closingCountMap.set(pack.region_id, Array.isArray(slides) ? slides.length : 0)
+    }
+
+    const regionsWithCounts = (data as DbRegion[]).map((r) => ({
+      ...r,
+      intro_slides_count: introCountMap.get(r.id) ?? r.intro_slides_count,
+      closing_slides_count: closingCountMap.get(r.id) ?? r.closing_slides_count,
+    }))
+
+    setRegions(regionsWithCounts)
   }, [])
 
   const fetchModules = useCallback(async () => {
     const { data, error: err } = await supabase
       .from('product_modules')
-      .select('*')
+      .select('*, product_slides(id)')
       .order('sort_order')
     if (err) {
       setError(err.message)
       return
     }
-    setProductModules(data as DbProductModule[])
+
+    // Override denormalized slides_count with actual count from product_slides
+    const modulesWithCounts = (data as (DbProductModule & { product_slides?: unknown })[]).map((m) => {
+      const slides = m.product_slides as unknown[]
+      const actualCount = Array.isArray(slides) ? slides.length : m.slides_count
+      const { product_slides: _, ...rest } = m
+      return { ...rest, slides_count: actualCount } as DbProductModule
+    })
+
+    setProductModules(modulesWithCounts)
   }, [])
 
   const fetchCategories = useCallback(async () => {
