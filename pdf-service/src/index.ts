@@ -130,6 +130,34 @@ async function enrichSlideOrderWithFieldDefs(
     }
   }
 
+  // Fetch closing slide fields
+  try {
+    const { data: closingPack } = await supabase
+      .from('closing_packs')
+      .select('id')
+      .eq('region_id', regionId)
+      .eq('is_active', true)
+      .single()
+
+    if (closingPack) {
+      const { data: closingSlides } = await supabase
+        .from('closing_slides')
+        .select('slide_number, editable_fields')
+        .eq('closing_pack_id', closingPack.id)
+
+      if (closingSlides) {
+        for (const s of closingSlides) {
+          const fields = Array.isArray(s.editable_fields) ? s.editable_fields : []
+          if (fields.length > 0) {
+            fieldMap[`closing-${s.slide_number}`] = fields
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[PDF] Failed to fetch closing field defs:', err)
+  }
+
   console.log(`[PDF] Field defs from DB: ${Object.keys(fieldMap).length} slides have fields`)
 
   // Merge: prefer client-sent defs, fall back to DB defs

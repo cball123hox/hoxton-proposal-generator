@@ -4,8 +4,9 @@ import { useAuth } from '../lib/auth'
 import { useTemplateData } from '../hooks/useTemplateData'
 import { IntroPacksTab } from '../components/admin/templates/IntroPacksTab'
 import { ProductModulesTab } from '../components/admin/templates/ProductModulesTab'
+import { ClosingPacksTab } from '../components/admin/templates/ClosingPacksTab'
 
-type Tab = 'intro' | 'products'
+type Tab = 'intro' | 'products' | 'closing'
 
 export function AdminTemplatesPage() {
   const { user } = useAuth()
@@ -48,7 +49,7 @@ export function AdminTemplatesPage() {
           Template Library
         </h1>
         <p className="mt-1 text-sm font-body text-hoxton-slate">
-          Manage intro packs and product module slides
+          Manage intro packs, product modules, and closing packs
         </p>
       </div>
 
@@ -58,6 +59,7 @@ export function AdminTemplatesPage() {
           [
             { key: 'intro', label: 'Intro Packs' },
             { key: 'products', label: 'Product Modules' },
+            { key: 'closing', label: 'Closing Packs' },
           ] as { key: Tab; label: string }[]
         ).map((t) => (
           <button
@@ -90,6 +92,13 @@ export function AdminTemplatesPage() {
           userId={userId}
           onRefreshModules={refreshModules}
           onRefreshCategories={refreshCategories}
+        />
+      )}
+      {tab === 'closing' && (
+        <ClosingPacksTab
+          regions={regions}
+          userId={userId}
+          onRefresh={refreshRegions}
         />
       )}
     </div>

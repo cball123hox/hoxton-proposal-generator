@@ -57,16 +57,26 @@ Deno.serve(async (req) => {
     const body = await req.json()
     const { slideType, parentId } = body
 
-    if (!slideType || !["intro", "product"].includes(slideType)) {
-      return jsonResponse({ error: "slideType must be 'intro' or 'product'" }, 400)
+    if (!slideType || !["intro", "product", "closing"].includes(slideType)) {
+      return jsonResponse({ error: "slideType must be 'intro', 'product', or 'closing'" }, 400)
     }
 
     if (!parentId) {
       return jsonResponse({ error: "parentId is required" }, 400)
     }
 
-    const table = slideType === "intro" ? "intro_slides" : "product_slides"
-    const parentKey = slideType === "intro" ? "intro_pack_id" : "module_id"
+    const tableMap: Record<string, string> = {
+      intro: "intro_slides",
+      product: "product_slides",
+      closing: "closing_slides",
+    }
+    const parentKeyMap: Record<string, string> = {
+      intro: "intro_pack_id",
+      product: "module_id",
+      closing: "closing_pack_id",
+    }
+    const table = tableMap[slideType]
+    const parentKey = parentKeyMap[slideType]
 
     // ── Query ──
 

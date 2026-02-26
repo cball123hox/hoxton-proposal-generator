@@ -84,6 +84,7 @@ export interface DbRegion {
   name: string
   display_name: string
   intro_slides_count: number
+  closing_slides_count: number
   is_active: boolean
   sort_order: number
 }
@@ -104,6 +105,27 @@ export interface DbIntroSlide {
   slide_number: number
   title: string
   slide_type: 'static' | 'editable' | 'product_insert' | 'divider'
+  image_path: string | null
+  editable_fields: EditableFieldDef[]
+  created_at: string
+}
+
+export interface DbClosingPack {
+  id: string
+  region_id: string
+  name: string
+  version: number
+  is_active: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface DbClosingSlide {
+  id: string
+  closing_pack_id: string
+  slide_number: number
+  title: string
+  slide_type: 'static' | 'editable'
   image_path: string | null
   editable_fields: EditableFieldDef[]
   created_at: string
@@ -151,6 +173,7 @@ export type AuditAction =
   | 'region_created' | 'region_updated'
   | 'category_created' | 'category_updated' | 'category_deleted'
   | 'intro_pack_created'
+  | 'closing_pack_created'
   | 'editable_fields_updated'
 
 export interface Proposal {

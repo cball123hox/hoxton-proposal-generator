@@ -61,9 +61,16 @@ function renderEditableFieldOverlays(
   fieldsData: Record<string, Record<string, string>>,
   fieldsFromDb?: EditableFieldDef[]
 ): string {
-  if (!fieldsFromDb || fieldsFromDb.length === 0) return ''
+  if (!fieldsFromDb || fieldsFromDb.length === 0) {
+    console.log(`[PDF:overlay] ${slideId}: no field defs`)
+    return ''
+  }
   const slideValues = fieldsData[slideId]
-  if (!slideValues) return ''
+  if (!slideValues) {
+    console.log(`[PDF:overlay] ${slideId}: has ${fieldsFromDb.length} field defs but no values in editableFieldsData`)
+    return ''
+  }
+  console.log(`[PDF:overlay] ${slideId}: rendering ${fieldsFromDb.length} fields with values: ${Object.keys(slideValues).join(', ')}`)
 
   return fieldsFromDb
     .map((field) => {
@@ -96,7 +103,11 @@ function renderEditableFieldOverlays(
 
       const escapedValue = escapeHtml(String(value ?? ''))
 
-      return `<div style="position:absolute;left:${field.x}%;top:${field.y}%;width:${field.width}%;height:${field.height}%;display:flex;align-items:flex-start;overflow:hidden;font-family:${fontFamily};font-size:${field.fontSize}px;font-weight:${fontWeightMap[field.fontWeight] || '400'};color:${field.color};text-align:${field.textAlign};line-height:1.4;padding:2px 4px;"><span style="width:100%;text-align:${field.textAlign};">${escapedValue}</span></div>`
+      if (field.type === 'textarea') {
+        return `<div style="position:absolute;left:${field.x}%;top:${field.y}%;width:${field.width}%;height:${field.height}%;overflow:hidden;font-family:${fontFamily};font-size:${Math.round(field.fontSize * 0.9)}px;font-weight:${fontWeightMap[field.fontWeight] || '400'};color:${field.color};text-align:${field.textAlign};line-height:1.45;padding:2px 4px;white-space:pre-wrap;word-wrap:break-word;overflow-wrap:break-word;">${escapedValue}</div>`
+      }
+
+      return `<div style="position:absolute;left:${field.x}%;top:${field.y}%;width:${field.width}%;height:${field.height}%;display:flex;align-items:flex-start;overflow:hidden;font-family:${fontFamily};font-size:${field.fontSize}px;font-weight:${fontWeightMap[field.fontWeight] || '400'};color:${field.color};text-align:${field.textAlign};line-height:1.4;padding:2px 4px;white-space:nowrap;"><span style="width:100%;text-align:${field.textAlign};">${escapedValue}</span></div>`
     })
     .join('')
 }
@@ -258,37 +269,7 @@ export function assembleHtml(data: ProposalData): string {
     }
   }
 
-  // 5. Moving Forward divider
-  slidesHtml.push(
-    renderImageSlide(
-      `${slideBase}/closing/moving-forward.PNG`,
-      'Moving Forward'
-    )
-  )
-
-  // 6. Next Steps
-  slidesHtml.push(
-    renderImageSlide(
-      `${slideBase}/closing/next-steps.PNG`,
-      'Next Steps'
-    )
-  )
-
-  // 7. Disclaimer
-  slidesHtml.push(
-    renderImageSlide(
-      `${slideBase}/closing/disclaimer.PNG`,
-      'Disclaimer'
-    )
-  )
-
-  // 8. Thank You
-  slidesHtml.push(
-    renderImageSlide(
-      `${slideBase}/closing/thank-you.PNG`,
-      'Thank You'
-    )
-  )
+  // 5. Closing slides (come via slideOrder when available; omitted in default path)
 
   template = template.replace('{{clientName}}', escapeHtml(data.clientName))
   template = template.replace('{{slides}}', slidesHtml.join('\n'))

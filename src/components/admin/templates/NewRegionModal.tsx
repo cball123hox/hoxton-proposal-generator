@@ -61,6 +61,12 @@ export function NewRegionModal({ userId, onClose, onCreated }: NewRegionModalPro
       name: `${displayName.trim()} Intro Pack`,
     })
 
+    // Create empty closing pack for the region
+    await supabase.from('closing_packs').insert({
+      region_id: regionId.trim(),
+      name: `${displayName.trim()} Closing Pack`,
+    })
+
     await logAudit('region_created', 'region', regionId.trim(), {
       name: name.trim(),
       display_name: displayName.trim(),

@@ -416,24 +416,6 @@ export function StepPreviewGenerate({ draft, onSaveDraft, proposalId, updateDraf
       }
     }
 
-    const closingSlides = [
-      { key: 'moving-forward', label: 'Moving Forward' },
-      { key: 'next-steps', label: 'Next Steps' },
-      { key: 'disclaimer', label: 'Disclaimer' },
-      { key: 'thank-you', label: 'Thank You' },
-    ]
-    for (const cs of closingSlides) {
-      items.push({
-        id: `closing-${cs.key}`,
-        section: 'Closing',
-        sectionType: 'closing',
-        label: cs.label,
-        slideIndex: idx++,
-        imagePath: getSlideUrl(`closing/${cs.key}.PNG`),
-        isEditable: false,
-      })
-    }
-
     return items
   }, [region, draft.regionId, selectedModules])
 
@@ -443,10 +425,11 @@ export function StepPreviewGenerate({ draft, onSaveDraft, proposalId, updateDraf
     setSlides(initialSlides)
   }, [initialSlides])
 
-  // Fetch editable field definitions via Edge Functions and attach to slides
+  // Fetch closing slides from DB + editable field definitions, then merge into slides
   useEffect(() => {
-    async function fetchFieldDefs() {
+    async function fetchFieldDefsAndClosingSlides() {
       const fieldMap: Record<string, EditableFieldDef[]> = {}
+      let closingSlideItems: SlideItem[] = []
 
       // Fetch intro slide fields via Edge Function
       if (region) {
@@ -497,19 +480,86 @@ export function StepPreviewGenerate({ draft, onSaveDraft, proposalId, updateDraf
         }
       }
 
-      // Attach field defs to slides
-      if (Object.keys(fieldMap).length > 0) {
-        setSlides((prev) =>
-          prev.map((s) => ({
-            ...s,
-            editableFields: fieldMap[s.id] || undefined,
-            isEditable: s.isEditable || !!fieldMap[s.id],
-          }))
-        )
+      // Fetch closing slides from DB
+      if (region) {
+        try {
+          const { data: closingPack } = await supabase
+            .from('closing_packs')
+            .select('id')
+            .eq('region_id', draft.regionId)
+            .eq('is_active', true)
+            .single()
+
+          if (closingPack) {
+            const { data, error } = await supabase.functions.invoke('get-slide-fields', {
+              body: { slideType: 'closing', parentId: closingPack.id },
+            })
+
+            if (!error && data?.slides) {
+              const closingDbSlides = data.slides as { slide_number: number; editable_fields?: unknown[]; image_path?: string }[]
+              for (const s of closingDbSlides) {
+                const fields = Array.isArray(s.editable_fields) ? s.editable_fields as EditableFieldDef[] : []
+                if (fields.length > 0) {
+                  fieldMap[`closing-${s.slide_number}`] = fields
+                }
+              }
+
+              // Build closing slide items from DB
+              closingSlideItems = closingDbSlides.map((s, _i) => ({
+                id: `closing-${s.slide_number}`,
+                section: `Closing — ${region?.name ?? 'Region'}`,
+                sectionType: 'closing' as const,
+                label: `Closing Slide ${s.slide_number}`,
+                slideIndex: 0, // will be re-calculated below
+                imagePath: getSlideUrl(s.image_path || `closing-${draft.regionId}/Slide${s.slide_number}.PNG`),
+                isEditable: false,
+              }))
+            }
+          }
+
+          // If no closing pack slides in DB, fetch count from regions table as fallback
+          if (closingSlideItems.length === 0) {
+            const { data: dbRegion } = await supabase
+              .from('regions')
+              .select('closing_slides_count')
+              .eq('id', draft.regionId)
+              .single()
+
+            const closingCount = dbRegion?.closing_slides_count ?? 0
+            for (let i = 1; i <= closingCount; i++) {
+              closingSlideItems.push({
+                id: `closing-${i}`,
+                section: `Closing — ${region?.name ?? 'Region'}`,
+                sectionType: 'closing' as const,
+                label: `Closing Slide ${i}`,
+                slideIndex: 0,
+                imagePath: getSlideUrl(`closing-${draft.regionId}/Slide${i}.PNG`),
+                isEditable: false,
+              })
+            }
+          }
+        } catch (err) {
+          logger.warn('[Preview] Failed to fetch closing slides:', err)
+        }
       }
+
+      // Merge: append closing slides + attach field defs
+      setSlides((prev) => {
+        // Remove any existing closing slides (in case of re-fetch)
+        const nonClosing = prev.filter((s) => s.sectionType !== 'closing')
+        const combined = [...nonClosing, ...closingSlideItems]
+
+        // Re-index and attach field defs
+        return combined.map((s, idx) => ({
+          ...s,
+          slideIndex: idx,
+          editableFields: fieldMap[s.id] || s.editableFields || undefined,
+          isEditable: s.isEditable || !!fieldMap[s.id],
+        }))
+      })
     }
 
-    fetchFieldDefs()
+    fetchFieldDefsAndClosingSlides()
   }, [region, draft.regionId, selectedModules.map((m) => m.id).join(',')])
 
   // Group slides into sections for the left panel
