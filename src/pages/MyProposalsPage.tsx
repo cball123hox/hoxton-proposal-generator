@@ -6,14 +6,17 @@ import {
   Eye,
   ChevronLeft,
   ChevronRight,
+  ArrowUpDown,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { StatusBadge } from '../components/ui/StatusBadge'
+import { markNotificationsAsSeen, getProposalViewStats, type ProposalViewStats } from '../lib/notifications'
 import { REGIONS } from '../lib/constants'
 import type { ProposalStatus } from '../types'
 
 type FilterTab = 'all' | 'draft' | 'pending_approval' | 'sent'
+type SortMode = 'newest' | 'recently_viewed'
 
 interface ProposalRow {
   id: string
@@ -42,6 +45,18 @@ function formatDate(dateStr: string): string {
   })
 }
 
+function timeAgo(dateStr: string): string {
+  const seconds = Math.floor((Date.now() - new Date(dateStr).getTime()) / 1000)
+  if (seconds < 60) return 'Just now'
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${minutes}m ago`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}h ago`
+  const days = Math.floor(hours / 24)
+  if (days < 7) return `${days}d ago`
+  return formatDate(dateStr)
+}
+
 function regionName(regionId: string): string {
   return REGIONS.find((r) => r.id === regionId)?.display ?? regionId.toUpperCase()
 }
@@ -50,13 +65,19 @@ export function MyProposalsPage() {
   const { user, profile } = useAuth()
   const navigate = useNavigate()
   const [tab, setTab] = useState<FilterTab>('all')
+  const [sortMode, setSortMode] = useState<SortMode>('newest')
   const [proposals, setProposals] = useState<ProposalRow[]>([])
-  const [openCounts, setOpenCounts] = useState<Record<string, number>>({})
+  const [viewStats, setViewStats] = useState<Record<string, ProposalViewStats>>({})
   const [totalCount, setTotalCount] = useState(0)
   const [page, setPage] = useState(0)
   const [loading, setLoading] = useState(true)
 
   const isAdmin = profile?.role === 'system_admin'
+
+  // Mark notifications as seen when visiting this page
+  useEffect(() => {
+    markNotificationsAsSeen()
+  }, [])
 
   useEffect(() => {
     if (!user) return
@@ -84,22 +105,11 @@ export function MyProposalsPage() {
         setProposals(data as ProposalRow[])
         setTotalCount(count ?? 0)
 
-        // Fetch open counts
+        // Fetch view stats
         const proposalIds = data.map((p) => p.id)
         if (proposalIds.length > 0) {
-          const { data: events } = await supabase
-            .from('proposal_events')
-            .select('proposal_id')
-            .in('proposal_id', proposalIds)
-            .eq('event_type', 'opened')
-
-          if (events) {
-            const counts: Record<string, number> = {}
-            events.forEach((e) => {
-              counts[e.proposal_id] = (counts[e.proposal_id] || 0) + 1
-            })
-            setOpenCounts(counts)
-          }
+          const stats = await getProposalViewStats(proposalIds)
+          setViewStats(stats)
         }
       }
 
@@ -115,6 +125,19 @@ export function MyProposalsPage() {
   }, [tab])
 
   const totalPages = Math.ceil(totalCount / PAGE_SIZE)
+
+  // Apply sort
+  const sortedProposals = [...proposals]
+  if (sortMode === 'recently_viewed') {
+    sortedProposals.sort((a, b) => {
+      const aLast = viewStats[a.id]?.lastViewedAt || ''
+      const bLast = viewStats[b.id]?.lastViewedAt || ''
+      if (!aLast && !bLast) return 0
+      if (!aLast) return 1
+      if (!bLast) return -1
+      return bLast.localeCompare(aLast)
+    })
+  }
 
   return (
     <div>
@@ -142,21 +165,31 @@ export function MyProposalsPage() {
         </Link>
       </div>
 
-      {/* Filter Tabs */}
-      <div className="mb-6 inline-flex gap-1 rounded-xl bg-white p-1 shadow-sm border border-gray-100">
-        {TABS.map((t) => (
-          <button
-            key={t.key}
-            onClick={() => setTab(t.key)}
-            className={`rounded-lg px-4 py-2 text-sm font-heading font-medium transition-colors ${
-              tab === t.key
-                ? 'bg-hoxton-turquoise text-white shadow-sm'
-                : 'text-hoxton-slate hover:bg-hoxton-light hover:text-hoxton-deep'
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
+      {/* Filter Tabs + Sort */}
+      <div className="mb-6 flex items-center justify-between">
+        <div className="inline-flex gap-1 rounded-xl bg-white p-1 shadow-sm border border-gray-100">
+          {TABS.map((t) => (
+            <button
+              key={t.key}
+              onClick={() => setTab(t.key)}
+              className={`rounded-lg px-4 py-2 text-sm font-heading font-medium transition-colors ${
+                tab === t.key
+                  ? 'bg-hoxton-turquoise text-white shadow-sm'
+                  : 'text-hoxton-slate hover:bg-hoxton-light hover:text-hoxton-deep'
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        <button
+          onClick={() => setSortMode(sortMode === 'newest' ? 'recently_viewed' : 'newest')}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-gray-100 bg-white px-3 py-2 text-xs font-heading font-medium text-hoxton-slate transition-colors hover:bg-hoxton-light hover:text-hoxton-deep"
+        >
+          <ArrowUpDown className="h-3.5 w-3.5" />
+          {sortMode === 'newest' ? 'Newest first' : 'Recently viewed'}
+        </button>
       </div>
 
       {/* Table */}
@@ -220,14 +253,14 @@ export function MyProposalsPage() {
                     Created
                   </th>
                   <th className="px-6 py-3 text-xs font-heading font-semibold uppercase tracking-wider text-gray-400">
-                    Client Opens
+                    Client Views
                   </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
-                {proposals.map((p) => {
-                  const opens = openCounts[p.id] ?? 0
-                  const maxBar = 10
+                {sortedProposals.map((p) => {
+                  const vs = viewStats[p.id]
+                  const views = vs?.totalViews ?? 0
 
                   return (
                     <tr
@@ -260,19 +293,29 @@ export function MyProposalsPage() {
                         {formatDate(p.created_at)}
                       </td>
                       <td className="px-6 py-4">
-                        {opens > 0 ? (
-                          <div className="flex items-center gap-2">
-                            <div className="h-2 w-16 overflow-hidden rounded-full bg-gray-100">
-                              <div
-                                className="h-full rounded-full bg-hoxton-turquoise"
-                                style={{ width: `${Math.min((opens / maxBar) * 100, 100)}%` }}
-                              />
+                        {views > 0 ? (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              navigate(`/proposals/${p.id}?tab=analytics`)
+                            }}
+                            className="group flex items-center gap-2"
+                          >
+                            <div className="flex items-center gap-1.5">
+                              {vs?.isLive && (
+                                <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+                              )}
+                              <Eye className="h-3.5 w-3.5 text-hoxton-slate group-hover:text-hoxton-turquoise" />
+                              <span className="text-sm font-heading font-medium text-hoxton-slate group-hover:text-hoxton-turquoise">
+                                {views}
+                              </span>
                             </div>
-                            <span className="inline-flex items-center gap-1 text-xs font-heading font-medium text-hoxton-slate">
-                              <Eye className="h-3 w-3" />
-                              {opens}
-                            </span>
-                          </div>
+                            {vs?.lastViewedAt && (
+                              <span className="text-[10px] font-body text-gray-400">
+                                {timeAgo(vs.lastViewedAt)}
+                              </span>
+                            )}
+                          </button>
                         ) : (
                           <span className="text-sm text-gray-300">&mdash;</span>
                         )}

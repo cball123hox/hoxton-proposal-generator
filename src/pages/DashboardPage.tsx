@@ -9,11 +9,23 @@ import {
   ChevronRight,
   ArrowRight,
   Users,
+  Eye,
+  FileDown,
+  ShieldCheck,
+  CheckCircle2,
+  XCircle,
+  Bell,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { StatusBadge } from '../components/ui/StatusBadge'
 import { HoxtonLogo } from '../components/ui/HoxtonLogo'
+import {
+  getRecentNotifications,
+  getLastSeenTimestamp,
+  markNotificationsAsSeen,
+  type NotificationItem,
+} from '../lib/notifications'
 import type { ProposalStatus } from '../types'
 
 interface ProposalRow {
@@ -57,9 +69,60 @@ function formatDate(dateStr: string): string {
   })
 }
 
+function timeAgo(dateStr: string): string {
+  const seconds = Math.floor((Date.now() - new Date(dateStr).getTime()) / 1000)
+  if (seconds < 60) return 'Just now'
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${minutes}m ago`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}h ago`
+  const days = Math.floor(hours / 24)
+  if (days < 7) return `${days}d ago`
+  return formatDate(dateStr)
+}
+
 function getMonthStart(): string {
   const now = new Date()
   return new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
+}
+
+/* ── Notification display helpers ── */
+
+function notifIcon(type: string): React.ReactNode {
+  switch (type) {
+    case 'opened': return <Eye className="h-4 w-4" />
+    case 'downloaded': return <FileDown className="h-4 w-4" />
+    case 'sent': return <Send className="h-4 w-4" />
+    case 'approved': return <CheckCircle2 className="h-4 w-4" />
+    case 'rejected': return <XCircle className="h-4 w-4" />
+    case 'pdf_generated': return <FileDown className="h-4 w-4" />
+    default: return <Bell className="h-4 w-4" />
+  }
+}
+
+function notifColor(type: string): string {
+  switch (type) {
+    case 'opened': return 'text-emerald-600 bg-emerald-50'
+    case 'downloaded': return 'text-hoxton-turquoise bg-hoxton-turquoise/10'
+    case 'sent': return 'text-hoxton-turquoise bg-hoxton-turquoise/10'
+    case 'approved': return 'text-emerald-600 bg-emerald-50'
+    case 'rejected': return 'text-red-500 bg-red-50'
+    case 'pdf_generated': return 'text-hoxton-deep bg-hoxton-light'
+    default: return 'text-gray-400 bg-gray-50'
+  }
+}
+
+function notifText(n: NotificationItem): string {
+  const name = (n.event_data?.recipient_name as string) || n.client_name
+  switch (n.event_type) {
+    case 'opened': return `${name} opened your proposal`
+    case 'downloaded': return `${name} downloaded the PDF`
+    case 'sent': return `Tracking link sent to ${name}`
+    case 'approved': return `Proposal for ${n.client_name} approved`
+    case 'rejected': return `Proposal for ${n.client_name} rejected`
+    case 'pdf_generated': return `PDF generated for ${n.client_name}`
+    default: return `Activity on ${n.client_name}`
+  }
 }
 
 export function DashboardPage() {
@@ -68,6 +131,8 @@ export function DashboardPage() {
   const [stats, setStats] = useState<ProposalStats>({ total: 0, sentThisMonth: 0, pendingApproval: 0, draft: 0 })
   const [proposals, setProposals] = useState<ProposalRow[]>([])
   const [loading, setLoading] = useState(true)
+  const [notifications, setNotifications] = useState<NotificationItem[]>([])
+  const [lastSeen, setLastSeen] = useState<string | null>(null)
 
   const isAdmin = profile?.role === 'system_admin'
 
@@ -106,6 +171,15 @@ export function DashboardPage() {
 
       setLoading(false)
     }
+
+    // Fetch notifications
+    const ls = getLastSeenTimestamp()
+    setLastSeen(ls)
+
+    getRecentNotifications(user.id, 10).then(setNotifications)
+
+    // Mark as seen when viewing dashboard
+    markNotificationsAsSeen()
 
     fetchDashboard()
   }, [user])
@@ -201,6 +275,58 @@ export function DashboardPage() {
             )}
           </div>
         ))}
+      </div>
+
+      {/* Recent Activity */}
+      <div className="mb-8 rounded-2xl border border-gray-100 bg-white">
+        <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
+          <div className="flex items-center gap-2">
+            <Bell className="h-4 w-4 text-hoxton-turquoise" />
+            <h2 className="text-lg font-heading font-semibold text-hoxton-deep">
+              Recent Activity
+            </h2>
+          </div>
+        </div>
+
+        {notifications.length === 0 ? (
+          <div className="px-6 py-12 text-center">
+            <Bell className="mx-auto mb-3 h-10 w-10 text-gray-300" />
+            <p className="font-heading font-medium text-hoxton-deep">No recent activity</p>
+            <p className="mt-1 text-sm font-body text-gray-400">
+              Client viewing events will appear here when proposals are shared.
+            </p>
+          </div>
+        ) : (
+          <div className="divide-y divide-gray-50">
+            {notifications.map((n) => {
+              const isNew = lastSeen ? n.created_at > lastSeen : true
+              return (
+                <Link
+                  key={n.id}
+                  to={`/proposals/${n.proposal_id}?tab=analytics`}
+                  className={`flex items-start gap-3 px-6 py-3.5 transition-colors hover:bg-hoxton-light/50 ${
+                    isNew ? 'bg-hoxton-turquoise/[0.04]' : ''
+                  }`}
+                >
+                  <div className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${notifColor(n.event_type)}`}>
+                    {notifIcon(n.event_type)}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-heading font-medium text-hoxton-deep">
+                      {notifText(n)}
+                    </p>
+                    <p className="mt-0.5 text-xs font-body text-hoxton-slate">
+                      {n.client_name}
+                    </p>
+                  </div>
+                  <span className="shrink-0 text-xs font-body text-gray-400">
+                    {timeAgo(n.created_at)}
+                  </span>
+                </Link>
+              )
+            })}
+          </div>
+        )}
       </div>
 
       {/* Clients Overview */}

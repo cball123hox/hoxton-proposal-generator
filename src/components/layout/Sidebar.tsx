@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard,
@@ -10,11 +11,12 @@ import {
 } from 'lucide-react'
 import { useAuth } from '../../lib/auth'
 import { HoxtonLogo } from '../ui/HoxtonLogo'
+import { getUnreadCount, getLastSeenTimestamp } from '../../lib/notifications'
 
 const navItems = [
   { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/proposals/new', label: 'New Proposal', icon: FilePlus },
-  { to: '/proposals', label: 'My Proposals', icon: FileText },
+  { to: '/proposals', label: 'My Proposals', icon: FileText, badgeKey: 'proposals' as const },
 ]
 
 const ROLE_LABELS: Record<string, string> = {
@@ -39,6 +41,17 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
   const { profile, signOut } = useAuth()
   const { pathname } = useLocation()
   const isAdmin = profile?.role === 'system_admin'
+  const user = profile
+
+  const [unreadCount, setUnreadCount] = useState(0)
+
+  // Fetch unread count on mount and when pathname changes
+  useEffect(() => {
+    if (!user?.id) return
+
+    const lastSeen = getLastSeenTimestamp()
+    getUnreadCount(user.id, lastSeen).then(setUnreadCount)
+  }, [user?.id, pathname])
 
   function handleNavClick() {
     onClose()
@@ -54,6 +67,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
           profile={profile}
           signOut={signOut}
           onNavClick={handleNavClick}
+          unreadCount={unreadCount}
         />
       </aside>
 
@@ -69,6 +83,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
           profile={profile}
           signOut={signOut}
           onNavClick={handleNavClick}
+          unreadCount={unreadCount}
         />
       </aside>
     </>
@@ -81,12 +96,14 @@ function SidebarContent({
   profile,
   signOut,
   onNavClick,
+  unreadCount,
 }: {
   pathname: string
   isAdmin: boolean
   profile: ReturnType<typeof useAuth>['profile']
   signOut: () => Promise<void>
   onNavClick: () => void
+  unreadCount: number
 }) {
   return (
     <>
@@ -99,6 +116,7 @@ function SidebarContent({
       <nav className="flex-1 space-y-1 px-3 py-4">
         {navItems.map((item) => {
           const isActive = pathname === item.to
+          const showBadge = 'badgeKey' in item && item.badgeKey === 'proposals' && unreadCount > 0
           return (
             <Link
               key={item.to}
@@ -112,6 +130,11 @@ function SidebarContent({
             >
               <item.icon className="h-5 w-5" />
               {item.label}
+              {showBadge && (
+                <span className="ml-auto flex h-5 min-w-[20px] items-center justify-center rounded-full bg-hoxton-turquoise px-1.5 text-[10px] font-heading font-bold text-white">
+                  {unreadCount > 99 ? '99+' : unreadCount}
+                </span>
+              )}
             </Link>
           )
         })}
