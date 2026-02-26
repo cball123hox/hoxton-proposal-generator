@@ -374,6 +374,8 @@ function getAutoFillValue(autoFill: string, draft: ProposalDraft): string {
   switch (autoFill) {
     case 'client_name':
       return draft.clientName
+    case 'client_email':
+      return draft.clientEmail || ''
     case 'hxt_reference':
       return draft.hxtNumber
     case 'date':
@@ -386,9 +388,34 @@ function getAutoFillValue(autoFill: string, draft: ProposalDraft): string {
       const region = REGIONS.find((r) => r.id === draft.regionId)
       return region?.display ?? ''
     }
-    case 'advisor_name':
-      // Would need to look up from profile, return empty for manual fill
+    case 'client_dob':
+    case 'client_nationality':
+    case 'client_address':
+    case 'client_employer':
+    case 'client_risk_profile':
+      // Future: populated from client lookup data
       return ''
+    case 'advisor_name':
+    case 'advisor_email':
+    case 'advisor_phone':
+      // Future: populated from adviser profile
+      return ''
+    case 'situation':
+      return draft.context?.situation || ''
+    case 'objectives':
+      return draft.context?.objectives || ''
+    case 'focus':
+      return draft.context?.focus || ''
+    case 'company_name':
+      return 'Hoxton Wealth'
+    case 'year':
+      return new Date().getFullYear().toString()
+    case 'proposal_date':
+      return new Date().toLocaleDateString('en-GB', {
+        day: 'numeric',
+        month: 'long',
+        year: 'numeric',
+      })
     default:
       return ''
   }

@@ -51,6 +51,18 @@ export interface ProposalDraft {
 
 // ── Editable slide field types ──
 
+export type AutoFillSource =
+  // Client Details
+  | 'client_name' | 'client_email' | 'hxt_reference'
+  | 'client_dob' | 'client_nationality' | 'client_address'
+  | 'client_employer' | 'client_risk_profile'
+  // Adviser Details
+  | 'advisor_name' | 'advisor_email' | 'advisor_phone'
+  // Proposal Info
+  | 'region_name' | 'company_name' | 'date' | 'year' | 'proposal_date'
+  // AI Summary
+  | 'situation' | 'objectives' | 'focus'
+
 export interface EditableFieldDef {
   id: string
   name: string
@@ -65,7 +77,7 @@ export interface EditableFieldDef {
   fontWeight: 'normal' | 'medium' | 'semibold' | 'bold'
   color: string   // hex color
   textAlign: 'left' | 'center' | 'right'
-  autoFill?: string  // e.g. 'client_name', 'advisor_name', 'date', 'hxt_reference'
+  autoFill?: AutoFillSource
 }
 
 /** Map of slideId -> { fieldName: value } */

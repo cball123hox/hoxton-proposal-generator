@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
-import { X, Plus, Trash2, Save, Loader2, Type, AlignLeft, Table, CheckCircle2, AlertCircle } from 'lucide-react'
+import { X, Plus, Trash2, Save, Loader2, Type, AlignLeft, Table, CheckCircle2, AlertCircle, Eye } from 'lucide-react'
 import { Portal } from '../../ui/Portal'
 import type { EditableFieldDef } from '../../../types'
 
@@ -27,14 +27,78 @@ const FIELD_COLORS = [
   '#14B8A6', // teal
 ]
 
-const AUTO_FILL_OPTIONS = [
-  { value: '', label: 'None (manual)' },
-  { value: 'client_name', label: 'Client Name' },
-  { value: 'advisor_name', label: 'Advisor Name' },
-  { value: 'date', label: "Today's Date" },
-  { value: 'hxt_reference', label: 'HXT Reference' },
-  { value: 'region_name', label: 'Region Name' },
+const AUTO_FILL_GROUPS = [
+  {
+    label: 'Client Details',
+    options: [
+      { value: 'client_name', label: 'Client Name' },
+      { value: 'client_email', label: 'Client Email' },
+      { value: 'hxt_reference', label: 'HXT Reference' },
+      { value: 'client_dob', label: 'Date of Birth' },
+      { value: 'client_nationality', label: 'Nationality' },
+      { value: 'client_address', label: 'Client Address' },
+      { value: 'client_employer', label: 'Employer' },
+      { value: 'client_risk_profile', label: 'Risk Profile' },
+    ],
+  },
+  {
+    label: 'Adviser Details',
+    options: [
+      { value: 'advisor_name', label: 'Adviser Name' },
+      { value: 'advisor_email', label: 'Adviser Email' },
+      { value: 'advisor_phone', label: 'Adviser Phone' },
+    ],
+  },
+  {
+    label: 'Proposal Info',
+    options: [
+      { value: 'region_name', label: 'Region Name' },
+      { value: 'company_name', label: 'Company Name' },
+      { value: 'date', label: 'Current Date' },
+      { value: 'year', label: 'Current Year' },
+      { value: 'proposal_date', label: 'Proposal Date' },
+    ],
+  },
+  {
+    label: 'AI Summary',
+    options: [
+      { value: 'situation', label: 'Current Situation' },
+      { value: 'objectives', label: 'Main Objectives' },
+      { value: 'focus', label: 'Focus Areas' },
+    ],
+  },
 ]
+
+const TEXTAREA_AUTO_FILLS = new Set(['situation', 'objectives', 'focus'])
+
+const SAMPLE_AUTO_FILL: Record<string, string> = {
+  client_name: 'James & Sarah Mitchell',
+  client_email: 'james.mitchell@email.com',
+  hxt_reference: 'HXT-10001',
+  client_dob: '15 March 1978',
+  client_nationality: 'British',
+  client_address: '42 Kensington Gardens, London W8 4PX',
+  client_employer: 'Barclays Investment Bank',
+  client_risk_profile: 'Balanced',
+  advisor_name: 'Chris Ball',
+  advisor_email: 'chris.ball@hoxtonwealth.com',
+  advisor_phone: '+44 20 7946 0958',
+  region_name: 'United Kingdom',
+  company_name: 'Hoxton Wealth',
+  date: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }),
+  year: new Date().getFullYear().toString(),
+  proposal_date: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }),
+  situation: 'Based on our conversation, you are in a strong financial position with a clear desire to optimise your wealth management strategy for the next phase of your lives.',
+  objectives: '\u2022 Optimise pension arrangements\n\u2022 Explore tax-efficient investment options\n\u2022 Plan for intergenerational wealth transfer',
+  focus: '\u2022 International SIPP\n\u2022 Offshore bond\n\u2022 Trust planning',
+}
+
+const FONT_WEIGHT_MAP: Record<string, string> = {
+  normal: '400',
+  medium: '500',
+  semibold: '600',
+  bold: '700',
+}
 
 function generateId() {
   return `field-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
@@ -56,6 +120,8 @@ export function FieldEditor({
   const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [saveStatus, setSaveStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
+  const [showTestPreview, setShowTestPreview] = useState(false)
+  const [testValues, setTestValues] = useState<Record<string, string>>({})
   const canvasRef = useRef<HTMLDivElement>(null)
 
   // Interaction state
@@ -224,6 +290,19 @@ export function FieldEditor({
     } else {
       setSaveStatus({ type: 'error', message: result.error || 'Failed to save fields' })
     }
+  }
+
+  function openTestPreview() {
+    const initial: Record<string, string> = {}
+    for (const field of fields) {
+      if (field.autoFill && SAMPLE_AUTO_FILL[field.autoFill]) {
+        initial[field.id] = SAMPLE_AUTO_FILL[field.autoFill]
+      } else {
+        initial[field.id] = ''
+      }
+    }
+    setTestValues(initial)
+    setShowTestPreview(true)
   }
 
   // Keyboard shortcuts
@@ -472,6 +551,14 @@ export function FieldEditor({
                 Cancel
               </button>
               <button
+                onClick={openTestPreview}
+                disabled={fields.length === 0}
+                className="inline-flex items-center gap-2 rounded-lg border border-hoxton-turquoise px-4 py-2.5 text-sm font-heading font-semibold text-hoxton-turquoise transition-colors hover:bg-hoxton-turquoise/5 disabled:opacity-40"
+              >
+                <Eye className="h-4 w-4" />
+                Test Preview
+              </button>
+              <button
                 onClick={handleSave}
                 disabled={saving}
                 className="inline-flex items-center gap-2 rounded-lg bg-hoxton-turquoise px-4 py-2.5 text-sm font-heading font-semibold text-white transition-colors hover:bg-hoxton-turquoise/90 disabled:opacity-50"
@@ -484,7 +571,230 @@ export function FieldEditor({
           </div>
         </div>
       </div>
+
+      {/* Test Preview Modal */}
+      {showTestPreview && (
+        <TestPreviewModal
+          slideImageUrl={slideImageUrl}
+          slideLabel={slideLabel}
+          fields={fields}
+          testValues={testValues}
+          onUpdateValue={(fieldId, value) =>
+            setTestValues((prev) => ({ ...prev, [fieldId]: value }))
+          }
+          onClose={() => setShowTestPreview(false)}
+        />
+      )}
     </Portal>
+  )
+}
+
+/* ── Test Preview Modal ── */
+
+function TestPreviewModal({
+  slideImageUrl,
+  slideLabel,
+  fields,
+  testValues,
+  onUpdateValue,
+  onClose,
+}: {
+  slideImageUrl: string
+  slideLabel: string
+  fields: EditableFieldDef[]
+  testValues: Record<string, string>
+  onUpdateValue: (fieldId: string, value: string) => void
+  onClose: () => void
+}) {
+  const containerRef = useRef<HTMLDivElement>(null)
+  const [scale, setScale] = useState(1)
+
+  // Calculate scale to fit 1280x720 within the available space
+  useEffect(() => {
+    function updateScale() {
+      if (!containerRef.current) return
+      const rect = containerRef.current.getBoundingClientRect()
+      const scaleX = rect.width / 1280
+      const scaleY = rect.height / 720
+      setScale(Math.min(scaleX, scaleY, 1))
+    }
+    updateScale()
+    window.addEventListener('resize', updateScale)
+    return () => window.removeEventListener('resize', updateScale)
+  }, [])
+
+  return (
+    <div className="fixed inset-0 z-[60] flex flex-col bg-black/80 backdrop-blur-sm">
+      {/* Header */}
+      <div className="flex shrink-0 items-center justify-between border-b border-white/10 px-6 py-3">
+        <div>
+          <h3 className="font-heading font-semibold text-white">
+            Test Preview — {slideLabel}
+          </h3>
+          <p className="text-sm font-body text-white/50">
+            Preview how fields will appear in the generated PDF (1280 x 720)
+          </p>
+        </div>
+        <button
+          onClick={onClose}
+          className="rounded-lg px-4 py-2 text-sm font-heading font-semibold text-white/70 transition-colors hover:bg-white/10 hover:text-white"
+        >
+          <X className="mr-1.5 inline h-4 w-4" />
+          Close Preview
+        </button>
+      </div>
+
+      {/* Slide preview area */}
+      <div
+        ref={containerRef}
+        className="flex flex-1 items-center justify-center overflow-hidden p-6"
+      >
+        <div
+          style={{
+            width: 1280,
+            height: 720,
+            position: 'relative',
+            transform: `scale(${scale})`,
+            transformOrigin: 'center center',
+            borderRadius: 4,
+            overflow: 'hidden',
+            boxShadow: '0 0 60px rgba(0,0,0,0.5)',
+          }}
+        >
+          <img
+            src={slideImageUrl}
+            alt={slideLabel}
+            draggable={false}
+            style={{
+              display: 'block',
+              width: 1280,
+              height: 720,
+              objectFit: 'cover',
+            }}
+          />
+
+          {/* Field overlays with styled text */}
+          {fields.map((field) => {
+            const value = testValues[field.id]
+            const fontFamily =
+              field.fontFamily === 'heading'
+                ? "'FT Calhern', 'Helvetica Neue', sans-serif"
+                : "'Sentient', Georgia, serif"
+            const isEmpty = !value
+
+            if (field.type === 'table' && value) {
+              const rows = value.split('\n').filter((r) => r.trim())
+              return (
+                <div
+                  key={field.id}
+                  style={{
+                    position: 'absolute',
+                    left: `${field.x}%`,
+                    top: `${field.y}%`,
+                    width: `${field.width}%`,
+                    height: `${field.height}%`,
+                    overflow: 'hidden',
+                    fontFamily,
+                    color: field.color,
+                    textAlign: field.textAlign,
+                  }}
+                >
+                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <tbody>
+                      {rows.map((row, ri) => {
+                        const cells = row.split('|').map((c) => c.trim())
+                        return (
+                          <tr key={ri}>
+                            {cells.map((c, ci) => (
+                              <td
+                                key={ci}
+                                style={{
+                                  padding: '2px 6px',
+                                  borderBottom: '1px solid rgba(0,0,0,0.1)',
+                                  fontSize: Math.round(field.fontSize * 0.85),
+                                }}
+                              >
+                                {c}
+                              </td>
+                            ))}
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )
+            }
+
+            return (
+              <div
+                key={field.id}
+                style={{
+                  position: 'absolute',
+                  left: `${field.x}%`,
+                  top: `${field.y}%`,
+                  width: `${field.width}%`,
+                  height: `${field.height}%`,
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  overflow: 'hidden',
+                  fontFamily,
+                  fontSize: field.fontSize,
+                  fontWeight: FONT_WEIGHT_MAP[field.fontWeight] || '400',
+                  color: isEmpty ? 'rgba(128,128,128,0.5)' : field.color,
+                  fontStyle: isEmpty ? 'italic' : 'normal',
+                  textAlign: field.textAlign,
+                  lineHeight: 1.4,
+                  padding: '2px 4px',
+                  whiteSpace: 'pre-wrap',
+                }}
+              >
+                <span style={{ width: '100%', textAlign: field.textAlign }}>
+                  {value || field.label}
+                </span>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* Field value inputs */}
+      {fields.length > 0 && (
+        <div className="shrink-0 border-t border-white/10 bg-black/40 px-6 py-4">
+          <div className="mx-auto max-w-[1280px]">
+            <p className="mb-3 text-xs font-heading font-semibold uppercase tracking-wider text-white/40">
+              Test Values — edit below to preview live
+            </p>
+            <div className="grid grid-cols-2 gap-x-6 gap-y-2 lg:grid-cols-3">
+              {fields.map((field) => (
+                <div key={field.id} className="flex items-start gap-2">
+                  <label className="mt-2 w-28 shrink-0 truncate text-right text-xs font-heading font-medium text-white/60">
+                    {field.label}
+                  </label>
+                  {field.type === 'textarea' || field.type === 'table' ? (
+                    <textarea
+                      value={testValues[field.id] || ''}
+                      onChange={(e) => onUpdateValue(field.id, e.target.value)}
+                      rows={2}
+                      placeholder={field.autoFill ? `(${field.autoFill})` : 'Type test text...'}
+                      className="min-w-0 flex-1 rounded border border-white/20 bg-white/10 px-2 py-1.5 text-xs text-white placeholder:text-white/30 focus:border-hoxton-turquoise focus:outline-none"
+                    />
+                  ) : (
+                    <input
+                      type="text"
+                      value={testValues[field.id] || ''}
+                      onChange={(e) => onUpdateValue(field.id, e.target.value)}
+                      placeholder={field.autoFill ? `(${field.autoFill})` : 'Type test text...'}
+                      className="min-w-0 flex-1 rounded border border-white/20 bg-white/10 px-2 py-1.5 text-xs text-white placeholder:text-white/30 focus:border-hoxton-turquoise focus:outline-none"
+                    />
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -580,13 +890,25 @@ function FieldProperties({
           </label>
           <select
             value={field.autoFill || ''}
-            onChange={(e) => onUpdate({ autoFill: e.target.value || undefined })}
+            onChange={(e) => {
+              const val = e.target.value || undefined
+              const updates: Partial<EditableFieldDef> = { autoFill: val }
+              if (val && TEXTAREA_AUTO_FILLS.has(val)) {
+                updates.type = 'textarea'
+              }
+              onUpdate(updates)
+            }}
             className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm font-body text-hoxton-deep focus:border-hoxton-turquoise focus:outline-none focus:ring-1 focus:ring-hoxton-turquoise"
           >
-            {AUTO_FILL_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
+            <option value="">None (manual)</option>
+            {AUTO_FILL_GROUPS.map((group) => (
+              <optgroup key={group.label} label={group.label}>
+                {group.options.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </optgroup>
             ))}
           </select>
         </div>
