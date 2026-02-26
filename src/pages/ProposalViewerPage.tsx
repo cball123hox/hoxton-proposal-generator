@@ -234,7 +234,7 @@ function OtpInput({
   shake: boolean
 }) {
   const inputRefs = useRef<(HTMLInputElement | null)[]>([])
-  const digits = value.padEnd(6, '').split('').slice(0, 6)
+  const digits = value.padEnd(6, ' ').split('').slice(0, 6)
 
   function handleKeyDown(i: number, e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === 'Backspace') {
@@ -266,7 +266,7 @@ function OtpInput({
     e.preventDefault()
     const pasted = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6)
     if (pasted.length > 0) {
-      onChange(pasted.padEnd(6, ''))
+      onChange(pasted.padEnd(6, ' '))
       const focusIdx = Math.min(pasted.length, 5)
       inputRefs.current[focusIdx]?.focus()
     }
