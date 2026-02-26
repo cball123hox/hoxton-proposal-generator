@@ -213,3 +213,47 @@ export interface Proposal {
   created_at: string
   updated_at: string
 }
+
+// ── Proposal Tracking ──
+
+export interface ProposalLink {
+  id: string
+  proposal_id: string
+  token: string
+  recipient_email: string
+  recipient_name: string
+  is_active: boolean
+  expires_at: string | null
+  allow_download: boolean
+  sent_at: string
+  sent_by: string
+  created_at: string
+  // Joined fields (not in table)
+  view_count?: number
+  last_viewed_at?: string | null
+}
+
+export interface LinkView {
+  id: string
+  link_id: string
+  viewer_ip: string | null
+  user_agent: string | null
+  device_type: string | null
+  referrer: string | null
+  country: string | null
+  is_unique_visitor: boolean
+  session_id: string | null
+  started_at: string
+  ended_at: string | null
+}
+
+export interface SlideAnalytic {
+  id: string
+  view_id: string
+  link_id: string
+  slide_index: number
+  slide_title: string | null
+  time_entered: string
+  time_exited: string | null
+  duration_seconds: number | null
+}

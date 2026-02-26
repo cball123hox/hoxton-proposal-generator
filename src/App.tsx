@@ -15,6 +15,7 @@ const AdminUsersPage = lazy(() => import('./pages/AdminUsersPage').then((m) => (
 const AdminTemplatesPage = lazy(() => import('./pages/AdminTemplatesPage').then((m) => ({ default: m.AdminTemplatesPage })))
 const ClientProposalsPage = lazy(() => import('./pages/ClientProposalsPage').then((m) => ({ default: m.ClientProposalsPage })))
 const AdminAuditLogPage = lazy(() => import('./pages/AdminAuditLogPage').then((m) => ({ default: m.AdminAuditLogPage })))
+const ProposalViewerPage = lazy(() => import('./pages/ProposalViewerPage').then((m) => ({ default: m.ProposalViewerPage })))
 
 export default function App() {
   return (
@@ -24,6 +25,7 @@ export default function App() {
           <OfflineBanner />
           <Routes>
             <Route path="/login" element={<LoginPage />} />
+            <Route path="/view/:token" element={<ProposalViewerPage />} />
 
             {/* Protected routes with sidebar layout */}
             <Route

@@ -18,6 +18,9 @@ import {
   BarChart3,
   AlertTriangle,
   Eye,
+  Send,
+  Link2,
+  ExternalLink,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
@@ -25,9 +28,11 @@ import { StatusBadge } from '../components/ui/StatusBadge'
 import { Badge } from '../components/ui/Badge'
 import { REGIONS, PRODUCT_MODULES, CATEGORIES } from '../lib/constants'
 import { getSlideUrl } from '../lib/storage'
-import type { Proposal, ProposalStatus } from '../types'
+import { getProposalLinks, getViewerUrl } from '../lib/tracking'
+import { SendProposalModal } from '../components/proposal/SendProposalModal'
+import type { Proposal, ProposalStatus, ProposalLink } from '../types'
 
-type Tab = 'overview' | 'slides' | 'activity'
+type Tab = 'overview' | 'slides' | 'activity' | 'tracking'
 
 interface ProposalEvent {
   id: string
@@ -124,13 +129,19 @@ export function ProposalDetailPage() {
 
   // Action states
   const [generating, setGenerating] = useState(false)
-  const [emailing, setEmailing] = useState(false)
   const [deleting, setDeleting] = useState(false)
 
   // Approval
   const [approvalNotes, setApprovalNotes] = useState('')
   const [approving, setApproving] = useState(false)
   const [rejecting, setRejecting] = useState(false)
+
+  // Send modal
+  const [showSendModal, setShowSendModal] = useState(false)
+
+  // Tracking links
+  const [trackingLinks, setTrackingLinks] = useState<ProposalLink[]>([])
+  const [loadingLinks, setLoadingLinks] = useState(false)
 
   const isAdmin = profile?.role === 'system_admin'
 
@@ -166,6 +177,17 @@ export function ProposalDetailPage() {
     fetchProposal()
   }, [id])
 
+  // Fetch tracking links when tab changes to tracking
+  useEffect(() => {
+    if (tab === 'tracking' && id) {
+      setLoadingLinks(true)
+      getProposalLinks(id).then((data) => {
+        setTrackingLinks(data)
+        setLoadingLinks(false)
+      })
+    }
+  }, [tab, id])
+
   /* ── Actions ── */
 
   async function handleGeneratePdf() {
@@ -180,20 +202,6 @@ export function ProposalDetailPage() {
       .eq('id', proposal.id)
     setProposal({ ...proposal, pdf_path: pdfPath, pdf_generated_at: new Date().toISOString() })
     setGenerating(false)
-  }
-
-  async function handleEmail() {
-    if (!proposal) return
-    setEmailing(true)
-    // Mock email send
-    await new Promise((r) => setTimeout(r, 2000))
-    const now = new Date().toISOString()
-    await supabase
-      .from('proposals')
-      .update({ status: 'sent' as ProposalStatus, sent_at: now })
-      .eq('id', proposal.id)
-    setProposal({ ...proposal, status: 'sent', sent_at: now })
-    setEmailing(false)
   }
 
   async function handleDelete() {
@@ -408,17 +416,22 @@ export function ProposalDetailPage() {
             </>
           )}
 
+          {proposal.pdf_path && (
+            <button
+              onClick={() => setShowSendModal(true)}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-hoxton-turquoise px-3.5 py-2 text-sm font-heading font-semibold text-white transition-colors hover:bg-hoxton-turquoise/90"
+            >
+              <Send className="h-3.5 w-3.5" />
+              Send Proposal
+            </button>
+          )}
+
           <button
-            onClick={handleEmail}
-            disabled={emailing}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-hoxton-grey bg-white px-3.5 py-2 text-sm font-heading font-medium text-hoxton-deep transition-colors hover:bg-hoxton-light disabled:opacity-50"
+            onClick={() => setShowSendModal(true)}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-hoxton-grey bg-white px-3.5 py-2 text-sm font-heading font-medium text-hoxton-deep transition-colors hover:bg-hoxton-light"
           >
-            {emailing ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <Mail className="h-3.5 w-3.5" />
-            )}
-            {emailing ? 'Sending...' : 'Email to Client'}
+            <Mail className="h-3.5 w-3.5" />
+            Email to Client
           </button>
 
           {proposal.status === 'draft' && (
@@ -446,6 +459,7 @@ export function ProposalDetailPage() {
               { key: 'overview', label: 'Overview' },
               { key: 'slides', label: 'Slide Preview' },
               { key: 'activity', label: 'Activity' },
+              { key: 'tracking', label: 'Tracking' },
             ] as { key: Tab; label: string }[]
           ).map((t) => (
             <button
@@ -757,6 +771,110 @@ export function ProposalDetailPage() {
             </div>
           )}
         </div>
+      )}
+
+      {/* ── Tab: Tracking ── */}
+      {tab === 'tracking' && (
+        <div className="rounded-2xl border border-gray-100 bg-white">
+          {loadingLinks ? (
+            <div className="flex items-center justify-center py-16">
+              <Loader2 className="h-6 w-6 animate-spin text-hoxton-slate" />
+            </div>
+          ) : trackingLinks.length === 0 ? (
+            <div className="px-6 py-16 text-center">
+              <Link2 className="mx-auto mb-3 h-10 w-10 text-gray-300" />
+              <p className="font-heading font-medium text-hoxton-deep">No tracking links yet</p>
+              <p className="mt-1 text-sm font-body text-gray-400">
+                Send this proposal to generate tracking links.
+              </p>
+              {proposal.pdf_path && (
+                <button
+                  onClick={() => setShowSendModal(true)}
+                  className="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-hoxton-turquoise px-4 py-2 text-sm font-heading font-semibold text-white transition-colors hover:bg-hoxton-turquoise/90"
+                >
+                  <Send className="h-4 w-4" />
+                  Send Proposal
+                </button>
+              )}
+            </div>
+          ) : (
+            <div>
+              <div className="border-b border-gray-50 px-6 py-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-heading font-semibold text-hoxton-deep">
+                    {trackingLinks.length} tracking link{trackingLinks.length !== 1 ? 's' : ''}
+                  </h3>
+                  <span className="text-sm font-body text-hoxton-slate">
+                    {trackingLinks.reduce((sum, l) => sum + (l.view_count ?? 0), 0)} total views
+                  </span>
+                </div>
+              </div>
+              <div className="divide-y divide-gray-50">
+                {trackingLinks.map((link) => {
+                  const isExpired = link.expires_at && new Date(link.expires_at) < new Date()
+                  return (
+                    <div key={link.id} className="flex items-center gap-4 px-6 py-4">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-heading font-medium text-hoxton-deep">
+                          {link.recipient_name}
+                        </p>
+                        <p className="text-xs font-body text-gray-400">{link.recipient_email}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-sm font-heading font-medium text-hoxton-deep">
+                          {link.view_count ?? 0} views
+                        </p>
+                        {link.last_viewed_at && (
+                          <p className="text-[10px] font-body text-gray-400">
+                            Last: {formatDateTime(link.last_viewed_at)}
+                          </p>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {!link.is_active ? (
+                          <Badge variant="error">Revoked</Badge>
+                        ) : isExpired ? (
+                          <Badge variant="warning">Expired</Badge>
+                        ) : (
+                          <Badge variant="success">Active</Badge>
+                        )}
+                        {link.is_active && !isExpired && (
+                          <button
+                            onClick={async () => {
+                              try {
+                                await navigator.clipboard.writeText(getViewerUrl(link.token))
+                              } catch { /* noop */ }
+                            }}
+                            className="rounded p-1.5 text-hoxton-slate hover:bg-hoxton-grey/50 hover:text-hoxton-deep"
+                            title="Copy link"
+                          >
+                            <ExternalLink className="h-4 w-4" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Send Proposal Modal */}
+      {showSendModal && (
+        <SendProposalModal
+          onClose={() => {
+            setShowSendModal(false)
+            // Refresh tracking links if on tracking tab
+            if (tab === 'tracking' && id) {
+              getProposalLinks(id).then(setTrackingLinks)
+            }
+          }}
+          proposalId={proposal.id}
+          clientName={proposal.client_name}
+          clientEmail={proposal.client_email}
+        />
       )}
     </div>
   )
