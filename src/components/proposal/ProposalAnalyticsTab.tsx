@@ -288,8 +288,25 @@ export function ProposalAnalyticsTab({
     )
   }
 
-  // Heatmap color scaling
-  const maxAvgDuration = Math.max(...heatmap.map((s) => s.avgDuration), 1)
+  // Build merged heatmap: all slides from slideImages, with analytics data overlaid
+  const heatmapByIndex: Record<number, SlideHeatmapItem> = {}
+  for (const h of heatmap) heatmapByIndex[h.slideIndex] = h
+
+  const mergedHeatmap: (SlideHeatmapItem & { url: string })[] = slideImages.map((img) => {
+    const data = heatmapByIndex[img.index]
+    return {
+      slideIndex: img.index,
+      slideTitle: data?.slideTitle || img.label,
+      viewCount: data?.viewCount ?? 0,
+      avgDuration: data?.avgDuration ?? 0,
+      minDuration: data?.minDuration ?? 0,
+      maxDuration: data?.maxDuration ?? 0,
+      sessions: data?.sessions ?? [],
+      url: img.url,
+    }
+  })
+
+  const maxAvgDuration = Math.max(...mergedHeatmap.map((s) => s.avgDuration), 1)
 
   // Find selected slide image URL
   const selectedSlideUrl = selectedSlide
@@ -337,7 +354,7 @@ export function ProposalAnalyticsTab({
       </div>
 
       {/* ── Slide Heatmap ── */}
-      {heatmap.length > 0 && (
+      {mergedHeatmap.length > 0 && (
         <div className="rounded-2xl border border-gray-100 bg-white p-6">
           <div className="mb-4 flex items-center justify-between">
             <h3 className="text-sm font-heading font-semibold uppercase tracking-wider text-gray-400">
@@ -361,9 +378,8 @@ export function ProposalAnalyticsTab({
               gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))',
             }}
           >
-            {heatmap.map((slide) => {
+            {mergedHeatmap.map((slide) => {
               const heat = maxAvgDuration > 0 ? slide.avgDuration / maxAvgDuration : 0
-              const imgData = slideImages.find((s) => s.index === slide.slideIndex)
 
               return (
                 <button
@@ -372,18 +388,16 @@ export function ProposalAnalyticsTab({
                   className="group overflow-hidden rounded-xl border border-gray-100 text-left transition-shadow hover:shadow-md"
                 >
                   <div className="relative aspect-video overflow-hidden bg-gray-50">
-                    {imgData && (
-                      <SlideThumb src={imgData.url} alt={imgData.label} />
-                    )}
+                    <SlideThumb src={slide.url} alt={slide.slideTitle} />
                     <div
                       className="absolute inset-0 transition-opacity group-hover:opacity-70"
                       style={{
                         backgroundColor: heatColor(heat),
-                        opacity: 0.35,
+                        opacity: slide.viewCount > 0 ? 0.35 : 0.1,
                       }}
                     />
                     <div className="absolute bottom-1 right-1 rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-heading font-semibold text-white tabular-nums">
-                      {formatDuration(slide.avgDuration)}
+                      {slide.viewCount > 0 ? formatDuration(slide.avgDuration) : '—'}
                     </div>
                   </div>
                   <div className="px-2 py-1.5">
@@ -391,7 +405,9 @@ export function ProposalAnalyticsTab({
                       {slide.slideTitle}
                     </p>
                     <p className="text-[9px] font-body text-gray-400">
-                      {slide.viewCount} view{slide.viewCount !== 1 ? 's' : ''}
+                      {slide.viewCount > 0
+                        ? `${slide.viewCount} view${slide.viewCount !== 1 ? 's' : ''}`
+                        : 'No views'}
                     </p>
                   </div>
                 </button>
