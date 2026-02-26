@@ -152,7 +152,7 @@ Deno.serve(async (req) => {
         return jsonResponse({ error: "Link has expired" }, 403)
       }
 
-      // Rate limit: max 3 OTPs per link per hour
+      // Rate limit: max 10 OTPs per link per hour (tighten to 3-5 for production)
       const oneHourAgo = new Date(
         Date.now() - 60 * 60 * 1000
       ).toISOString()
@@ -162,7 +162,7 @@ Deno.serve(async (req) => {
         .eq("link_id", link.id)
         .gte("created_at", oneHourAgo)
 
-      if (recentCount !== null && recentCount >= 3) {
+      if (recentCount !== null && recentCount >= 10) {
         return jsonResponse(
           { error: "Too many code requests. Please try again later." },
           429
