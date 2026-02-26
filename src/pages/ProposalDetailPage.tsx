@@ -30,9 +30,10 @@ import { REGIONS, PRODUCT_MODULES, CATEGORIES } from '../lib/constants'
 import { getSlideUrl } from '../lib/storage'
 import { getProposalLinks, getViewerUrl } from '../lib/tracking'
 import { SendProposalModal } from '../components/proposal/SendProposalModal'
+import { ProposalAnalyticsTab } from '../components/proposal/ProposalAnalyticsTab'
 import type { Proposal, ProposalStatus, ProposalLink } from '../types'
 
-type Tab = 'overview' | 'slides' | 'activity' | 'tracking'
+type Tab = 'overview' | 'slides' | 'activity' | 'tracking' | 'analytics'
 
 interface ProposalEvent {
   id: string
@@ -177,16 +178,15 @@ export function ProposalDetailPage() {
     fetchProposal()
   }, [id])
 
-  // Fetch tracking links when tab changes to tracking
+  // Fetch tracking links on load (needed for Analytics tab visibility + Tracking tab)
   useEffect(() => {
-    if (tab === 'tracking' && id) {
-      setLoadingLinks(true)
-      getProposalLinks(id).then((data) => {
-        setTrackingLinks(data)
-        setLoadingLinks(false)
-      })
-    }
-  }, [tab, id])
+    if (!id) return
+    setLoadingLinks(true)
+    getProposalLinks(id).then((data) => {
+      setTrackingLinks(data)
+      setLoadingLinks(false)
+    })
+  }, [id])
 
   /* ── Actions ── */
 
@@ -453,19 +453,22 @@ export function ProposalDetailPage() {
 
       {/* Tabs */}
       <div className="mb-6 border-b border-gray-100">
-        <div className="flex gap-6">
+        <div className="flex gap-6 overflow-x-auto">
           {(
             [
               { key: 'overview', label: 'Overview' },
               { key: 'slides', label: 'Slide Preview' },
               { key: 'activity', label: 'Activity' },
               { key: 'tracking', label: 'Tracking' },
+              ...(trackingLinks.length > 0 || proposal.status === 'sent'
+                ? [{ key: 'analytics' as Tab, label: 'Analytics' }]
+                : []),
             ] as { key: Tab; label: string }[]
           ).map((t) => (
             <button
               key={t.key}
               onClick={() => setTab(t.key)}
-              className={`border-b-2 pb-3 text-sm font-heading font-medium transition-colors ${
+              className={`shrink-0 border-b-2 pb-3 text-sm font-heading font-medium transition-colors ${
                 tab === t.key
                   ? 'border-hoxton-turquoise text-hoxton-turquoise'
                   : 'border-transparent text-hoxton-slate hover:border-gray-200 hover:text-hoxton-deep'
@@ -861,15 +864,48 @@ export function ProposalDetailPage() {
         </div>
       )}
 
+      {/* ── Tab: Analytics ── */}
+      {tab === 'analytics' && (
+        <ProposalAnalyticsTab
+          proposalId={proposal.id}
+          totalSlideCount={totalSlides}
+          slideImages={(() => {
+            const images: { index: number; url: string; label: string }[] = []
+            let idx = 0
+            // Intro slides
+            const introCount = regionIntroSlides(proposal.region_id)
+            for (let i = 1; i <= introCount; i++) {
+              images.push({
+                index: idx++,
+                url: getSlideUrl(`intro-${proposal.region_id}/Slide${i}.PNG`),
+                label: `Intro ${i}`,
+              })
+            }
+            // Product slides
+            const selectedMods = PRODUCT_MODULES.filter((m) =>
+              proposal.selected_products.includes(m.id)
+            )
+            for (const mod of selectedMods) {
+              for (let i = 1; i <= mod.slides; i++) {
+                images.push({
+                  index: idx++,
+                  url: getSlideUrl(`products/${mod.id}/Slide${i}.PNG`),
+                  label: `${mod.name} ${i}`,
+                })
+              }
+            }
+            return images
+          })()}
+        />
+      )}
+
       {/* Send Proposal Modal */}
       {showSendModal && (
         <SendProposalModal
           onClose={() => {
             setShowSendModal(false)
-            // Refresh tracking links if on tracking tab
-            if (tab === 'tracking' && id) {
-              getProposalLinks(id).then(setTrackingLinks)
-            }
+            // Refresh tracking links
+            if (id) getProposalLinks(id).then(setTrackingLinks)
           }}
           proposalId={proposal.id}
           clientName={proposal.client_name}
