@@ -205,17 +205,21 @@ export function ManageIntroPackModal({ region, userId, onClose, onRefresh }: Man
 
     const existingCount = slides.length
     const startNumber = replaceAll ? 1 : existingCount + 1
+    console.log(`[IntroPack Upload] Starting: files=${files.length}, storagePath=${storagePath}, startNumber=${startNumber}, replaceAll=${replaceAll}, introPackId=${introPack.id}`)
+
     const results = await uploadSlides(files, storagePath, startNumber, setUploadProgress)
 
     const errors = results.filter((r) => r.error)
     if (errors.length > 0) {
-      logger.error('Upload errors:', errors)
+      console.error('[IntroPack Upload] Storage errors:', errors)
     }
 
     const successfulUploads = results.filter((r) => !r.error)
+    console.log(`[IntroPack Upload] Results: ${successfulUploads.length} succeeded, ${errors.length} failed`)
 
     if (successfulUploads.length === 0) {
-      addToast('error', 'All uploads failed — no slides were added')
+      const firstError = errors[0]?.error ?? 'Unknown error'
+      addToast('error', `Upload failed: ${firstError}`)
       setUploading(false)
       setUploadProgress(null)
       return
@@ -234,10 +238,11 @@ export function ManageIntroPackModal({ region, userId, onClose, onRefresh }: Man
       slide_type: 'static' as const,
       image_path: r.path,
     }))
+    console.log('[IntroPack Upload] Inserting intro_slides records:', JSON.stringify(records))
     const { error: insertError } = await supabase.from('intro_slides').insert(records)
 
     if (insertError) {
-      logger.error('Failed to insert intro_slides records:', insertError)
+      console.error('[IntroPack Upload] DB insert failed:', insertError)
       addToast('error', `Failed to save slide records: ${insertError.message}`)
       setUploading(false)
       setUploadProgress(null)

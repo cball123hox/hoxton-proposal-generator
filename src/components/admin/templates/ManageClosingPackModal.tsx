@@ -201,17 +201,21 @@ export function ManageClosingPackModal({ region, userId, onClose, onRefresh }: M
 
     const existingCount = slides.length
     const startNumber = replaceAll ? 1 : existingCount + 1
+    console.log(`[ClosingPack Upload] Starting: files=${files.length}, storagePath=${storagePath}, startNumber=${startNumber}, replaceAll=${replaceAll}, closingPackId=${closingPack.id}`)
+
     const results = await uploadSlides(files, storagePath, startNumber, setUploadProgress)
 
     const errors = results.filter((r) => r.error)
     if (errors.length > 0) {
-      logger.error('Upload errors:', errors)
+      console.error('[ClosingPack Upload] Storage errors:', errors)
     }
 
     const successfulUploads = results.filter((r) => !r.error)
+    console.log(`[ClosingPack Upload] Results: ${successfulUploads.length} succeeded, ${errors.length} failed`)
 
     if (successfulUploads.length === 0) {
-      addToast('error', 'All uploads failed — no slides were added')
+      const firstError = errors[0]?.error ?? 'Unknown error'
+      addToast('error', `Upload failed: ${firstError}`)
       setUploading(false)
       setUploadProgress(null)
       return
@@ -230,10 +234,11 @@ export function ManageClosingPackModal({ region, userId, onClose, onRefresh }: M
       slide_type: 'static' as const,
       image_path: r.path,
     }))
+    console.log('[ClosingPack Upload] Inserting closing_slides records:', JSON.stringify(records))
     const { error: insertError } = await supabase.from('closing_slides').insert(records)
 
     if (insertError) {
-      logger.error('Failed to insert closing_slides records:', insertError)
+      console.error('[ClosingPack Upload] DB insert failed:', insertError)
       addToast('error', `Failed to save slide records: ${insertError.message}`)
       setUploading(false)
       setUploadProgress(null)

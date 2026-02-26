@@ -39,6 +39,8 @@ export async function uploadSlides(
         const slideNumber = startNumber + i + batchIdx
         const filePath = `${storagePath}/Slide${slideNumber}.PNG`
 
+        console.log(`[Upload] Uploading slide ${slideNumber}: bucket=slides, path=${filePath}, size=${file.size}, type=${file.type}`)
+
         onProgress?.({
           total: files.length,
           completed,
@@ -60,8 +62,10 @@ export async function uploadSlides(
         })
 
         if (error) {
+          console.error(`[Upload] FAILED slide ${slideNumber}: path=${filePath}, error=${error.message}`, error)
           return { path: filePath, slideNumber, error: error.message }
         }
+        console.log(`[Upload] SUCCESS slide ${slideNumber}: path=${filePath}`)
         return { path: filePath, slideNumber }
       })
     )
