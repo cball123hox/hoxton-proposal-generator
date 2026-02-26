@@ -24,6 +24,7 @@ import { getSlideUrl } from '../../../lib/storage'
 import { uploadSlides, replaceSingleSlide, deleteSlideFile } from '../../../lib/upload'
 import { logAudit } from '../../../lib/audit'
 import { logger } from '../../../lib/logger'
+import { useToast } from '../../ui/Toast'
 import type { DbProductModule, DbProductSlide, DbRegion, EditableFieldDef } from '../../../types'
 import type { UploadProgress } from '../../../lib/upload'
 
@@ -75,6 +76,7 @@ interface SlideItem {
 }
 
 export function ManageProductModal({ module: mod, regions, userId, onClose, onRefresh }: ManageProductModalProps) {
+  const { addToast } = useToast()
   const [slides, setSlides] = useState<SlideItem[]>([])
   const [managedRegions, setManagedRegions] = useState<string[]>([...mod.regions])
   const [loading, setLoading] = useState(true)
@@ -94,8 +96,8 @@ export function ManageProductModal({ module: mod, regions, userId, onClose, onRe
 
   const storagePath = `products/${mod.id}`
 
-  const fetchSlides = useCallback(async () => {
-    setLoading(true)
+  const fetchSlides = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true)
 
     // Fetch slides via Edge Function (service role) to bypass RLS
     logger.log('[fetchSlides] Calling get-slide-fields with parentId:', mod.id)
@@ -197,21 +199,34 @@ export function ManageProductModal({ module: mod, regions, userId, onClose, onRe
 
     const successfulUploads = results.filter((r) => !r.error)
 
+    if (successfulUploads.length === 0) {
+      addToast('error', 'All uploads failed — no slides were added')
+      setUploading(false)
+      setUploadProgress(null)
+      return
+    }
+
     if (replaceAll) {
       // Delete existing slide records
       await supabase.from('product_slides').delete().eq('module_id', mod.id)
     }
 
     // Create new slide records
-    if (successfulUploads.length > 0) {
-      const records = successfulUploads.map((r) => ({
-        module_id: mod.id,
-        slide_number: r.slideNumber,
-        title: `Slide ${r.slideNumber}`,
-        slide_type: 'static' as const,
-        image_path: r.path,
-      }))
-      await supabase.from('product_slides').insert(records)
+    const records = successfulUploads.map((r) => ({
+      module_id: mod.id,
+      slide_number: r.slideNumber,
+      title: `Slide ${r.slideNumber}`,
+      slide_type: 'static' as const,
+      image_path: r.path,
+    }))
+    const { error: insertError } = await supabase.from('product_slides').insert(records)
+
+    if (insertError) {
+      logger.error('Failed to insert product_slides records:', insertError)
+      addToast('error', `Failed to save slide records: ${insertError.message}`)
+      setUploading(false)
+      setUploadProgress(null)
+      return
     }
 
     // Update slide count
@@ -231,8 +246,25 @@ export function ManageProductModal({ module: mod, regions, userId, onClose, onRe
     setUploadProgress(null)
     setHasReordered(false)
 
+    // Optimistically add new slides to local state so they appear immediately
+    if (!replaceAll) {
+      setSlides((prev) => [
+        ...prev,
+        ...successfulUploads.map((r) => ({
+          id: `slide-${r.slideNumber}`,
+          dbId: null as string | null,
+          slideNumber: r.slideNumber,
+          imagePath: r.path,
+          editableFields: [] as EditableFieldDef[],
+        })),
+      ])
+    }
+
+    addToast('success', `${successfulUploads.length} slide${successfulUploads.length !== 1 ? 's' : ''} uploaded successfully`)
+
     await onRefresh()
-    await fetchSlides()
+    // Silent refresh to sync dbIds and authoritative data without showing spinner
+    await fetchSlides(true)
   }
 
   async function handleReplaceSlide(slideNumber: number, file: File) {

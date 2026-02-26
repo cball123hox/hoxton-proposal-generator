@@ -24,6 +24,7 @@ import { getSlideUrl } from '../../../lib/storage'
 import { uploadSlides, replaceSingleSlide, deleteSlideFile } from '../../../lib/upload'
 import { logAudit } from '../../../lib/audit'
 import { logger } from '../../../lib/logger'
+import { useToast } from '../../ui/Toast'
 import type { DbRegion, DbIntroPack, DbIntroSlide, EditableFieldDef } from '../../../types'
 import type { UploadProgress } from '../../../lib/upload'
 
@@ -76,6 +77,7 @@ interface SlideItem {
 }
 
 export function ManageIntroPackModal({ region, userId, onClose, onRefresh }: ManageIntroPackModalProps) {
+  const { addToast } = useToast()
   const [introPack, setIntroPack] = useState<DbIntroPack | null>(null)
   const [slides, setSlides] = useState<SlideItem[]>([])
   const [loading, setLoading] = useState(true)
@@ -95,8 +97,8 @@ export function ManageIntroPackModal({ region, userId, onClose, onRefresh }: Man
 
   const storagePath = `intro-${region.id}`
 
-  const fetchData = useCallback(async () => {
-    setLoading(true)
+  const fetchData = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true)
 
     // Get or create intro pack for this region
     let { data: pack } = await supabase
@@ -212,21 +214,34 @@ export function ManageIntroPackModal({ region, userId, onClose, onRefresh }: Man
 
     const successfulUploads = results.filter((r) => !r.error)
 
+    if (successfulUploads.length === 0) {
+      addToast('error', 'All uploads failed — no slides were added')
+      setUploading(false)
+      setUploadProgress(null)
+      return
+    }
+
     if (replaceAll) {
       // Delete existing slide records for this pack
       await supabase.from('intro_slides').delete().eq('intro_pack_id', introPack.id)
     }
 
     // Create new slide records
-    if (successfulUploads.length > 0) {
-      const records = successfulUploads.map((r) => ({
-        intro_pack_id: introPack.id,
-        slide_number: r.slideNumber,
-        title: `Slide ${r.slideNumber}`,
-        slide_type: 'static' as const,
-        image_path: r.path,
-      }))
-      await supabase.from('intro_slides').insert(records)
+    const records = successfulUploads.map((r) => ({
+      intro_pack_id: introPack.id,
+      slide_number: r.slideNumber,
+      title: `Slide ${r.slideNumber}`,
+      slide_type: 'static' as const,
+      image_path: r.path,
+    }))
+    const { error: insertError } = await supabase.from('intro_slides').insert(records)
+
+    if (insertError) {
+      logger.error('Failed to insert intro_slides records:', insertError)
+      addToast('error', `Failed to save slide records: ${insertError.message}`)
+      setUploading(false)
+      setUploadProgress(null)
+      return
     }
 
     // Update slide count on regions table
@@ -246,8 +261,25 @@ export function ManageIntroPackModal({ region, userId, onClose, onRefresh }: Man
     setUploadProgress(null)
     setHasReordered(false)
 
+    // Optimistically add new slides to local state so they appear immediately
+    if (!replaceAll) {
+      setSlides((prev) => [
+        ...prev,
+        ...successfulUploads.map((r) => ({
+          id: `slide-${r.slideNumber}`,
+          dbId: null as string | null,
+          slideNumber: r.slideNumber,
+          imagePath: r.path,
+          editableFields: [] as EditableFieldDef[],
+        })),
+      ])
+    }
+
+    addToast('success', `${successfulUploads.length} slide${successfulUploads.length !== 1 ? 's' : ''} uploaded successfully`)
+
     await onRefresh()
-    await fetchData()
+    // Silent refresh to sync dbIds and authoritative data without showing spinner
+    await fetchData(true)
   }
 
   async function handleReplaceSlide(slideNumber: number, file: File) {
