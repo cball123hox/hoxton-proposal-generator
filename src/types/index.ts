@@ -205,6 +205,7 @@ export interface Proposal {
   ai_parsed_context?: Record<string, unknown>
   pdf_path?: string
   editable_fields_data?: Record<string, Record<string, string>>
+  disabled_slides?: string[]
   pdf_generated_at?: string
   viewer_token?: string
   sent_at?: string
