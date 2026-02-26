@@ -793,19 +793,29 @@ export function ProposalViewerPage() {
     [goToSlide, currentIndex]
   )
 
-  /* ── PDF download handler ── */
+  /* ── PDF download handler (via Edge Function for service-role signed URL) ── */
   const handleDownload = useCallback(async () => {
-    if (!proposal?.pdf_path) return
-    const { data } = await supabase.storage
-      .from('proposals')
-      .createSignedUrl(proposal.pdf_path, 3600)
-    if (data?.signedUrl) {
-      const a = document.createElement('a')
-      a.href = data.signedUrl
-      a.download = `${(proposal.client_name || 'proposal').replace(/[^a-zA-Z0-9-_]/g, '_')}.pdf`
-      a.click()
+    if (!proposal?.pdf_path || !token) return
+    const sessionToken = getSessionToken(token)
+    if (!sessionToken) return
+
+    try {
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/get-proposal-pdf`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token, session_token: sessionToken }),
+      })
+      const data = await res.json()
+      if (data?.url) {
+        const a = document.createElement('a')
+        a.href = data.url
+        a.download = data.filename || 'proposal.pdf'
+        a.click()
+      }
+    } catch {
+      // Download failed silently
     }
-  }, [proposal])
+  }, [proposal, token])
 
   /* ── Current slide data ── */
   const currentSlide = slides[currentIndex]
